@@ -1,0 +1,187 @@
+﻿@page "/audio-visualizer"
+@using AIMusicCreator.Web.Services
+@using AIMusicCreator.Web.Shared
+@inject ApiService Api
+@inject IJSRuntime JsRuntime
+
+<div class="container mt-4">
+    <h2>音频可视化</h2>
+    <hr />
+
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label class="form-label">上传音频文件</label>
+                <InputFile OnChange="OnAudioSelected" accept="audio/wav,audio/mp3" />
+            </div>
+
+            @if (!string.IsNullOrEmpty(audioUrl))
+            {
+                <AudioPlayer @ref="audioPlayer" AudioUrl="@audioUrl" FileName="@safeFileName" />
+                
+                <div class="mt-3 d-flex gap-2">
+                    <button @onclick="ToggleVisualization" class="btn btn-primary">
+                        @(isVisualizing ? "停止可视化" : "开始可视化")
+                    </button>
+                    <button @onclick="ChangeVisualizationType" class="btn btn-secondary">
+                        切换样式 (@currentVisualizationType)
+                    </button>
+                </div>
+
+                <div class="mt-3">
+                    <label class="form-label">可视化参数</label>
+                    <div class="row g-2">
+                        <div class="col-md-6">
+                            <label>敏感度: @sensitivity</label>
+                            <input type="range" @bind="sensitivity" min="1" max="10" class="form-range" />
+                        </div>
+                        <div class="col-md-6">
+                            <label>颜色方案</label>
+                            <select @bind="colorScheme" class="form-select">
+                                <option value="rainbow">彩虹色</option>
+                                <option value="blue">蓝色系</option>
+                                <option value="red">红色系</option>
+                                <option value="green">绿色系</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+
+        <div class="col-md-6">
+            <!-- 可视化画布 -->
+            <div class="border rounded p-1 bg-dark">
+                <canvas id="visualizer" width="600" height="300"></canvas>
+            </div>
+            
+            <!-- 音频信息 -->
+            @if (audioInfo != null)
+            {
+                <div class="mt-3 card p-2">
+                    <h6>音频信息</h6>
+                    <div class="row text-sm">
+                        <div class="col-6">采样率: @audioInfo.SampleRate Hz</div>
+                        <div class="col-6">声道数: @audioInfo.Channels</div>
+                        <div class="col-6">比特率: @audioInfo.BitRate kbps</div>
+                        <div class="col-6">时长: @audioInfo.Duration</div>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private IBrowserFile? audioFile;
+    private string audioUrl = string.Empty;
+    private string originalFileName = string.Empty;
+    private string safeFileName = string.Empty; // 安全文件名（避免乱码）
+    private AudioPlayer audioPlayer = new AudioPlayer();
+    private bool isVisualizing;
+    private string currentVisualizationType = "波形";
+    private int sensitivity = 5;
+    private string colorScheme = "rainbow";
+    private AudioInfo audioInfo = new();
+
+    // 音频信息模型
+    private class AudioInfo
+    {
+        public int SampleRate { get; set; }
+        public int Channels { get; set; }
+        public int BitRate { get; set; }
+        public string Duration { get; set; } = string.Empty;
+    }
+
+    private async Task OnAudioSelected(InputFileChangeEventArgs e)
+    {
+        if (e.FileCount == 0) return;
+        
+        audioFile = e.File;
+        originalFileName = audioFile.Name;
+        // 修复：生成安全文件名（移除特殊字符，统一编码）
+        safeFileName = SanitizeFileName(originalFileName);
+        
+        // 修复：正确读取文件流（避免编码错误）
+        using var stream = audioFile.OpenReadStream();
+        var buffer = new byte[stream.Length];
+        await stream.ReadAsync(buffer.AsMemory(0, (int)stream.Length));
+        // 修复：Base64编码时使用UTF-8
+        audioUrl = $"data:audio/{GetFileExtension(originalFileName)};base64,{Convert.ToBase64String(buffer)}";
+        
+        // 解析音频信息
+        audioInfo = await ParseAudioInfo(audioFile);
+    }
+
+    // 修复：文件名 sanitize（移除特殊字符，避免乱码）
+    private string SanitizeFileName(string fileName)
+    {
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var sanitized = new string(fileName.Where(c => !invalidChars.Contains(c)).ToArray());
+        // 限制长度，避免过长文件名
+        return sanitized.Length > 50 ? sanitized[..50] + Path.GetExtension(fileName) : sanitized;
+    }
+
+    // 获取文件扩展名（用于正确设置MIME类型）
+    private string GetFileExtension(string fileName)
+    {
+        return Path.GetExtension(fileName).TrimStart('.').ToLower() switch
+        {
+            "mp3" => "mp3",
+            _ => "wav" // 默认WAV
+        };
+    }
+
+    private async Task<AudioInfo> ParseAudioInfo(IBrowserFile file)
+    {
+        await Task.CompletedTask;
+        // 模拟解析结果（实际项目通过后端NAudio解析，避免前端编码问题）
+        var duration = Math.Round(file.Size / (1024.0 * 1024.0 * 0.001), 2);
+        return new AudioInfo
+        {
+            SampleRate = 44100,
+            Channels = 2,
+            BitRate = 128,
+            Duration = $"{duration} 秒"
+        };
+    }
+
+    private async Task ToggleVisualization()
+    {
+        if (string.IsNullOrEmpty(audioUrl)) return;
+        
+        isVisualizing = !isVisualizing;
+        if (isVisualizing)
+        {
+            // 启动可视化（确保参数编码正确）
+            await JsRuntime.InvokeVoidAsync(
+                "startVisualization", 
+                "visualizer", 
+                audioPlayer.AudioElementRef,
+                currentVisualizationType,
+                sensitivity,
+                colorScheme
+            );
+        }
+        else
+        {
+            await JsRuntime.InvokeVoidAsync("stopVisualization");
+        }
+    }
+
+    private void ChangeVisualizationType()
+    {
+        currentVisualizationType = currentVisualizationType switch
+        {
+            "波形" => "频谱",
+            "频谱" => "粒子",
+            "粒子" => "波形",
+            _ => "波形"
+        };
+        
+        if (isVisualizing)
+        {
+            _ = JsRuntime.InvokeVoidAsync("updateVisualizationType", currentVisualizationType, colorScheme, sensitivity);
+        }
+    }
+}

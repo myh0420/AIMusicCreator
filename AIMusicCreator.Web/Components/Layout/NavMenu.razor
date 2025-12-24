@@ -1,0 +1,73 @@
+<div class="top-row ps-3 navbar navbar-dark">
+    <div class="container-fluid">
+        <a class="navbar-brand" href="">AIMusicCreator</a>
+    </div>
+</div>
+
+<input type="checkbox" title="Navigation menu" class="navbar-toggler" />
+
+<div class="nav-scrollable" onclick="document.querySelector('.navbar-toggler').click()">
+    <nav class="nav flex-column">
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
+                <span class="bi bi-house-door-fill" aria-hidden="true"></span> 首页
+            </NavLink>
+        </div>
+        
+        <!-- 主要功能菜单项 -->
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="ai-assistant">
+                <span class="bi bi-lightbulb-fill" aria-hidden="true"></span> AI辅助创作
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="generate-melody">
+                <span class="bi bi-music-note-beamed" aria-hidden="true"></span> 生成旋律
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="audio-editor">
+                <span class="bi bi-sliders" aria-hidden="true"></span> 视频编辑
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="audio-cutter-joiner">
+                <span class="bi bi-scissors" aria-hidden="true"></span> 音频裁剪与拼接
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="project-manager">
+                <span class="bi bi-folder2" aria-hidden="true"></span> 项目管理
+            </NavLink>
+        </div>
+        
+        <!-- 辅助功能菜单项 -->
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="audio-upload">
+                <span class="bi bi-upload" aria-hidden="true"></span> AudioUpload
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="test-audio">
+                <span class="bi bi-headphones" aria-hidden="true"></span> test-audio
+            </NavLink>
+        </div>
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="video-player">
+                <span class="bi bi-play-circle" aria-hidden="true"></span> video-player
+            </NavLink>
+        </div>
+        
+        <!-- 示例/测试菜单项 -->
+        <div class="nav-item px-3">
+            <NavLink class="nav-link" href="counter">
+                <span class="bi bi-plus-square-fill" aria-hidden="true"></span> Counter
+            </NavLink>
+        </div>
+        <!--<div class="nav-item px-3">
+            <NavLink class="nav-link" href="weather">
+                <span class="bi bi-cloud-sun" aria-hidden="true"></span> Weather
+            </NavLink>
+        </div>-->
+    </nav>
+</div>

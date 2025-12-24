@@ -1,0 +1,238 @@
+﻿@page "/format-converter"
+@using AIMusicCreator.Web.Services
+@inject ApiService Api
+@inject IJSRuntime JsRuntime
+
+<div class="container mt-4">
+    <h2>音频格式批量转换</h2>
+    <hr />
+
+    <div class="row mb-4">
+        <div class="col-md-8">
+            <div class="mb-3">
+                <label class="form-label">上传音频文件（支持多个）</label>
+                <InputFile OnChange="OnFilesSelected" accept="audio/wav,audio/mp3,audio/flac" multiple />
+            </div>
+
+            @if (selectedFiles.Any())
+            {
+                <div class="alert alert-info">
+                    已选择 @selectedFiles.Count 个文件：@string.Join("、", selectedFiles.Take(3).Select(f => f.FileName)) @(selectedFiles.Count > 3 ? $"等{selectedFiles.Count}个" : "")
+                </div>
+            }
+        </div>
+
+        <div class="col-md-4">
+            <div class="mb-3">
+                <label class="form-label">目标格式</label>
+                <select @bind="targetFormat" class="form-select">
+                    <option value="wav">WAV（无损，文件较大）</option>
+                    <option value="mp3">MP3（有损，兼容性强）</option>
+                    <option value="flac">FLAC（无损，压缩比高）</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">MP3 音质（仅目标格式为MP3时生效）</label>
+                <select @bind="mp3Quality" class="form-select">
+                    <option value="128">128 kbps（普通音质）</option>
+                    <option value="192">192 kbps（中等音质）</option>
+                    <option value="320">320 kbps（高品质）</option>
+                </select>
+            </div>
+
+            <button @onclick="StartConversion" class="btn btn-primary w-100" disabled="@(selectedFiles.Count == 0 || isConverting)">
+                @(isConverting ? "转换中..." : $"开始转换（{selectedFiles.Count}个文件）")
+            </button>
+        </div>
+    </div>
+
+    <!-- 转换结果 -->
+    @if (convertedFiles.Any())
+    {
+        <div class="card mt-4">
+            <div class="card-header d-flex justify-content-between align-items-center">
+                <h5>转换结果</h5>
+                <button @onclick="DownloadAll" class="btn btn-sm btn-success">打包下载全部</button>
+            </div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-hover">
+                        <thead>
+                            <tr>
+                                <th>原文件</th>
+                                <th>目标格式</th>
+                                <th>大小</th>
+                                <th>状态</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var file in convertedFiles)
+                            {
+                                <tr>
+                                    <td>@file.OriginalFileName</td>
+                                    <td>@file.TargetFormat.ToUpper()</td>
+                                    <td>@file.FileSize</td>
+                                    <td><span class="badge bg-success">已完成</span></td>
+                                    <td>
+                                        <button @onclick="() => DownloadFile(file)" class="btn btn-sm btn-outline-success">下载</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    // 待转换文件模型
+    private class InputFileItem
+    {
+        public string FileName { get; set; } = string.Empty;
+        public byte[] Data { get; set; } = [];
+        public string OriginalFormat { get; set; } = string.Empty;
+    }
+
+    // 转换结果模型
+    private class ConvertedFileItem
+    {
+        public string OriginalFileName { get; set; } = string.Empty;
+        public string TargetFormat { get; set; } = string.Empty;
+        public string FileName { get; set; } = string.Empty;
+        public string FileSize { get; set; } = string.Empty;
+        public byte[] Data { get; set; } = [];
+        public string MimeType { get; set; } = string.Empty;
+    }
+
+    private List<InputFileItem> selectedFiles = new();
+    private List<ConvertedFileItem> convertedFiles = new();
+    private string targetFormat = "mp3";
+    private string mp3Quality = "192";
+    private bool isConverting;
+
+    // 选择文件
+    private async Task OnFilesSelected(InputFileChangeEventArgs e)
+    {
+        foreach (var file in e.GetMultipleFiles())
+        {
+            var extension = Path.GetExtension(file.Name).TrimStart('.').ToLower();
+            if (!new[] { "wav", "mp3", "flac" }.Contains(extension))
+            {
+                await JsRuntime.InvokeVoidAsync("alert", $"文件 {file.Name} 格式不支持，仅支持WAV/MP3/FLAC");
+                continue;
+            }
+
+            // 读取文件数据
+            using var stream = file.OpenReadStream();
+            var data = new byte[stream.Length];
+            await stream.ReadAsync(data.AsMemory(0, (int)stream.Length));
+
+            selectedFiles.Add(new InputFileItem
+            {
+                FileName = file.Name,
+                Data = data,
+                OriginalFormat = extension
+            });
+        }
+    }
+
+    // 开始转换
+    private async Task StartConversion()
+    {
+        if (!selectedFiles.Any())
+        {
+            await JsRuntime.InvokeVoidAsync("alert", "请先上传音频文件");
+            return;
+        }
+
+        isConverting = true;
+        convertedFiles.Clear();
+
+        try
+        {
+            foreach (var file in selectedFiles)
+            {
+                // 原格式与目标格式一致，直接跳过转换
+                if (file.OriginalFormat == targetFormat)
+                {
+                    convertedFiles.Add(new ConvertedFileItem
+                    {
+                        OriginalFileName = file.FileName,
+                        TargetFormat = targetFormat,
+                        FileName = Path.ChangeExtension(file.FileName, targetFormat),
+                        FileSize = $"{Math.Round(file.Data.Length / 1024.0, 1)} KB",
+                        Data = file.Data,
+                        MimeType = GetMimeType(targetFormat)
+                    });
+                    continue;
+                }
+
+                // 调用后端转换API
+                byte[] convertedData = await Api.ConvertAudioFormat(
+                    file.Data,
+                    file.OriginalFormat,
+                    targetFormat,
+                    int.Parse(mp3Quality)
+                );
+
+                // 添加到转换结果
+                convertedFiles.Add(new ConvertedFileItem
+                {
+                    OriginalFileName = file.FileName,
+                    TargetFormat = targetFormat,
+                    FileName = Path.ChangeExtension(file.FileName, targetFormat),
+                    FileSize = $"{Math.Round(convertedData.Length / 1024.0, 1)} KB",
+                    Data = convertedData,
+                    MimeType = GetMimeType(targetFormat)
+                });
+            }
+
+            await JsRuntime.InvokeVoidAsync("alert", $"转换完成！共 {convertedFiles.Count} 个文件");
+        }
+        catch (Exception ex)
+        {
+            await JsRuntime.InvokeVoidAsync("alert", $"转换失败: {ex.Message}");
+        }
+        finally
+        {
+            isConverting = false;
+        }
+    }
+
+    // 下载单个文件
+    private async Task DownloadFile(ConvertedFileItem file)
+    {
+        await Api.SaveFile(file.Data, file.FileName, file.MimeType);
+    }
+
+    // 打包下载全部（前端生成ZIP，无需后端）
+    private async Task DownloadAll()
+    {
+        if (!convertedFiles.Any()) return;
+
+        // 调用JS生成ZIP并下载
+        var filesToZip = convertedFiles.Select(f => new
+        {
+            Name = f.FileName,
+            Data = Convert.ToBase64String(f.Data)
+        }).ToList();
+
+        await JsRuntime.InvokeVoidAsync("downloadZip", "converted_audio.zip", filesToZip);
+    }
+
+    // 辅助：获取MIME类型
+    private string GetMimeType(string format)
+    {
+        return format switch
+        {
+            "wav" => "audio/wav",
+            "mp3" => "audio/mpeg",
+            "flac" => "audio/flac",
+            _ => "audio/wav"
+        };
+    }
+}

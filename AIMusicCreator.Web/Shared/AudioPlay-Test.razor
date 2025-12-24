@@ -1,0 +1,676 @@
+
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.JSInterop
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
+
+<div class="mb-3 p-3 border rounded bg-primary bg-opacity-10">
+    <h6>📁 本地文件播放: @localFileName</h6>
+    <audio @ref="audioElement"
+           controls
+           style="width: 100%"
+           src="@localAudioUrl"
+           oncanplay="@OnLocalAudioCanPlay"
+           onloadedmetadata="@OnLocalAudioMetadataLoaded"
+           // 移除不存在的事件处理器
+           onerror="@OnLocalAudioError"
+           onstalled="@OnLocalAudioStalled"
+           onsuspend="@OnLocalAudioSuspend">
+        您的浏览器不支持音频播放
+    </audio>
+    <div class="mt-2">
+        <small class="text-success">✓ 本地文件已加载</small>
+        @if (audioDuration > 0)
+        {
+            <span class="badge bg-info ms-2">时长: @TimeSpan.FromSeconds(audioDuration).ToString(@"mm\:ss")</span>
+        }
+        <span class="badge bg-secondary ms-2">大小: @GetFileSize(FileSize)</span>
+        <button @onclick="ClearLocalAudio" class="btn btn-sm btn-outline-secondary ms-2">关闭</button>
+    </div>
+    <div class="mt-1">
+        <small class="text-muted">音频状态: @audioStatus</small>
+    </div>
+</div>
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger">
+        <strong>错误:</strong> @errorMessage
+        <button @onclick="ClearError" class="btn btn-sm btn-outline-danger float-end">×</button>
+    </div>
+}
+@if (!string.IsNullOrEmpty(localAudioUrl))
+{
+    <div class="mt-2">
+        <button @onclick="CheckAudioState" class="btn btn-sm btn-outline-info">检查音频状态</button>
+        <button @onclick="ReloadAudio" class="btn btn-sm btn-outline-warning ms-1">重新加载</button>
+    </div>
+}
+@if (!string.IsNullOrEmpty(debugInfo))
+{
+    <div class="mt-3 p-2 border rounded bg-light">
+        <small class="text-muted">调试信息: @debugInfo</small>
+    </div>
+}
+@code {
+    /// <summary>
+    /// 音频元素引用
+    /// </summary>
+    private ElementReference audioElement;
+    /// <summary>
+    /// 本地音频URL
+    /// </summary>
+    private string? localAudioUrl { get; set; }
+    /// <summary>
+    /// 本地文件名
+    /// </summary>
+    [Parameter] public string? localFileName { get; set; }
+    /// <summary>
+    /// 文件大小
+    /// </summary>
+    private long FileSize { get; set; } = 0L;
+    /// <summary>
+    /// 错误消息
+    /// </summary>
+    private string? errorMessage;
+    /// <summary>
+    /// 调试信息
+    /// </summary>
+    private string? debugInfo;
+    /// <summary>
+    /// 音频时长
+    /// </summary>
+    private double audioDuration = 0;
+    /// <summary>
+    /// 选中的文件
+    /// </summary>
+    [Parameter] public IBrowserFile? SelectedFile { get; set; }
+    /// <summary>
+    /// 文件内容
+    /// </summary>
+    [Parameter] public byte[] FileContent { get; set; } = [];
+    /// <summary>
+    /// 内容类型
+    /// </summary>
+    [Parameter] public string ContentType { get; set; } = string.Empty;
+    /// <summary>
+    /// 音频状态
+    /// </summary>
+    private string audioStatus = "未加载";
+    /// <summary>
+    /// 获取音频元素引用
+    /// </summary>
+    public ElementReference AudioElementRef => audioElement;
+
+    /// <summary>
+    /// 组件渲染后异步加载JavaScript助手函数
+    /// </summary>
+    /// <param name="firstRender">是否首次渲染</param>
+    /// <returns>任务完成时返回</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadJavaScriptHelpers();
+        }
+    }
+    /// <summary>
+    /// 组件参数设置后异步播放本地文件
+    /// </summary>
+    /// <returns>任务完成时返回</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    protected override async Task OnParametersSetAsync()
+    {
+        await PlayLocalFile();
+        await base.OnParametersSetAsync();
+    }
+    // PlayLocalFile方法已在文件后面重新实现，功能更完善
+    /// <summary>
+    /// 异步加载JavaScript助手函数
+    /// </summary>
+    /// <returns>任务完成时返回</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private async Task LoadJavaScriptHelpers()
+    {
+        try
+        {
+            // 检查JavaScript函数是否已加载
+            var isLoaded = await JSRuntime.InvokeAsync<bool>("eval", "typeof createAudioObjectURL !== 'undefined'");
+            if (!isLoaded)
+            {
+                debugInfo = "JavaScript助手函数未加载，请确保audioHelper.js已引入";
+            }
+            else
+            {
+                debugInfo = "JavaScript助手函数已就绪";
+            }
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"JavaScript加载检查失败: {ex.Message}";
+        }
+        StateHasChanged();
+    }
+    /// <summary>
+    /// 异步等待音频加载完成
+    /// </summary>
+    /// <param name="audioElement">音频元素引用</param>
+    /// <returns>任务完成时返回</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private async Task WaitForAudioLoad(ElementReference audioElement)
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("waitForAudioLoad", audioElement);
+            audioStatus = "加载完成";
+            debugInfo = "音频加载完成";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            audioStatus = "加载错误";
+            debugInfo = $"音频加载失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+    /// <summary>
+    /// 异步等待音频准备就绪
+    /// </summary>
+    /// <param name="audioElement">音频元素引用</param>
+    /// <returns>任务完成时返回</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private async Task WaitForAudioReady(ElementReference audioElement)
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("waitForAudioReady", audioElement);
+            audioStatus = "就绪";
+            debugInfo = "音频就绪";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            audioStatus = "就绪错误";
+            debugInfo = $"音频就绪失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+    /// <summary>
+    /// 清除错误信息
+    /// </summary>
+    private void ClearError()
+    {
+        errorMessage = null;
+        StateHasChanged();
+    }
+    /// <summary>
+    /// 异步尝试自动播放音频
+    /// </summary>
+    /// <returns>任务完成时返回</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private async Task TryAutoPlay()
+    {
+        try
+        {
+            // 尝试播放（可能需要用户首次交互）
+            await JSRuntime.InvokeVoidAsync("tryPlayAudio", audioElement);
+        }
+        catch (Exception)
+        {
+            // 自动播放被阻止是正常的，需要用户交互
+            debugInfo = "自动播放被阻止，需要用户点击播放按钮";
+        }
+    }
+    /// <summary>
+    /// 异步处理音频元数据加载完成事件
+    /// </summary>
+    /// <returns>任务完成时返回</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private async Task OnLocalAudioMetadataLoaded()
+    {
+        try
+        {
+            audioDuration = await JSRuntime.InvokeAsync<double>("getAudioDuration", audioElement);
+            audioStatus = $"元数据加载完成 ({audioDuration:F2}秒)";
+            debugInfo = $"音频元数据加载完成，时长: {audioDuration}秒";
+            StateHasChanged();
+
+            // 尝试自动播放（可能需要用户交互）
+            await TryAutoPlay();
+        }
+        catch (Exception ex)
+        {
+            audioStatus = "元数据加载错误";
+            debugInfo = $"元数据加载回调失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+    /// <summary>
+    /// 异步处理音频可以播放事件
+    /// </summary>
+    /// <returns>任务完成时返回</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private async Task OnLocalAudioCanPlay()
+    {
+        try
+        {
+            await Task.CompletedTask;
+            audioStatus = "可以播放";
+            debugInfo = "音频可以播放";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            audioStatus = "可以播放但发生错误";
+            debugInfo = $"可以播放回调失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+    /// <summary>
+    /// 异步处理音频缓冲中事件
+    /// </summary>
+    /// <returns>任务完成时返回</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private void OnLocalAudioStalled()
+    {
+        audioStatus = "缓冲中...";
+        debugInfo = "音频缓冲中";
+        StateHasChanged();
+    }
+    /// <summary>
+    /// 异步处理音频加载暂停事件
+    /// </summary>
+    /// <returns>任务完成时返回</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private void OnLocalAudioSuspend()
+    {
+        audioStatus = "加载暂停";
+        debugInfo = "音频加载暂停";
+        StateHasChanged();
+    }
+    /// <summary>
+    /// 异步处理音频错误事件
+    /// </summary>
+    /// <returns>任务完成时返回</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private async Task OnLocalAudioError()
+    {
+        try
+        {
+            var errorInfo = await JSRuntime.InvokeAsync<string>("getAudioError", audioElement);
+            audioStatus = $"错误: {errorInfo}";
+            errorMessage = $"音频播放错误: {errorInfo}";
+            debugInfo = $"音频错误: {errorInfo}";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            audioStatus = "未知错误";
+            errorMessage = $"音频播放发生错误";
+            debugInfo = $"错误处理失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+    /// <summary>
+    /// 获取文件大小的可读字符串
+    /// </summary>
+    /// <param name="bytes">文件大小（字节）</param>
+    /// <returns>可读的文件大小字符串（如：1.23 MB）</returns>
+    private string GetFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        int order = 0;
+        double len = bytes;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+    /// <summary>
+    /// 播放本地音频文件
+    /// </summary>
+    /// <returns>任务完成时返回</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private async Task PlayLocalFile()
+    {
+        if (SelectedFile == null && FileContent.Length == 0) return;
+        if (SelectedFile != null)
+        {
+            try
+            {
+                errorMessage = null;
+                localAudioUrl = null;
+                audioDuration = 0;
+                FileSize = 0;
+                StateHasChanged();
+
+                // 让UI有时间更新状态
+
+                debugInfo = $"开始处理文件: {SelectedFile.Name}";
+                StateHasChanged();
+
+                // 创建对象URL
+                var url = await CreateDirectObjectUrl(SelectedFile);
+
+                if (!string.IsNullOrEmpty(url))
+                {
+                    debugInfo = "对象URL创建成功，正在设置音频源...";
+                    StateHasChanged();
+
+                    // 直接设置localAudioUrl，让Blazor处理音频元素
+                    localAudioUrl = url;
+                    localFileName = SelectedFile.Name;
+                    FileSize = SelectedFile.Size;
+                    // 通知UI更新
+            StateHasChanged();
+
+                    // 现在检查音频元素的状态
+                    var duration = await JSRuntime.InvokeAsync<double>("getAudioDuration", audioElement);
+                    if (duration > 0)
+                    {
+                        audioDuration = duration;
+                        debugInfo = $"音频加载成功，时长: {duration}秒";
+                    }
+                    else
+                    {
+                        debugInfo = "音频元素已设置，等待用户交互...";
+                    }
+                }
+                else
+                {
+                    errorMessage = "无法创建音频URL，请尝试其他文件。";
+                    debugInfo = "对象URL创建失败";
+                }
+            }
+            catch (Exception ex)
+            {
+                errorMessage = $"播放失败: {ex.Message}";
+                debugInfo = $"异常: {ex.Message}";
+            }
+            finally
+            {
+                // isLoading = false;
+                StateHasChanged();
+            }
+        }
+        else if (FileContent != null && FileContent.Length > 0)
+        {
+            try
+            {
+                errorMessage = null;
+                localAudioUrl = null;
+                audioDuration = 0;
+                FileSize = 0;
+                StateHasChanged();
+
+                // 给UI时间更新加载状态
+                await Task.Delay(10);
+
+                debugInfo = $"开始处理文件:";
+                StateHasChanged();
+
+                // 创建对象URL
+                var url = await CreateDirectObjectUrl(FileContent, ContentType);
+
+                if (!string.IsNullOrEmpty(url))
+                {
+                    debugInfo = "对象URL创建成功，正在设置音频源...";
+                    StateHasChanged();
+
+                    // 直接设置localAudioUrl，让Blazor处理音频元素
+                    localAudioUrl = url;
+                    // localFileName = SelectedFile.Name;
+                    FileSize = FileContent.LongLength;
+                    // 等待下一次渲染完成
+                    StateHasChanged();
+                    await Task.Delay(100);
+
+                    // 现在检查音频元素的状态
+                    var duration = await JSRuntime.InvokeAsync<double>("getAudioDuration", audioElement);
+                    if (duration > 0)
+                    {
+                        audioDuration = duration;
+                        debugInfo = $"音频加载成功，时长: {duration}秒";
+                    }
+                    else
+                    {
+                        debugInfo = "音频元素已设置，等待用户交互...";
+                    }
+                }
+                else
+                {
+                    errorMessage = "无法创建音频URL，请尝试其他文件。";
+                    debugInfo = "对象URL创建失败";
+                }
+            }
+            catch (Exception ex)
+            {
+                errorMessage = $"播放失败: {ex.Message}";
+                debugInfo = $"异常: {ex.Message}";
+            }
+            finally
+            {
+                // isLoading = false;
+                StateHasChanged();
+            }
+        }
+    }
+    /// <summary>
+    /// 异步创建直接对象URL
+    /// </summary>
+    /// <param name="audioFileContent">音频文件内容</param>
+    /// <param name="contentType">音频文件类型</param>
+    /// <returns>任务完成时返回直接对象URL</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private async Task<string?> CreateDirectObjectUrl(byte[] audioFileContent, string contentType)
+    {
+        try
+        {
+            using var fileStream = new ByteArrayContent(audioFileContent);
+            var streamRef = new DotNetStreamReference(fileStream.ReadAsStream());
+
+            // 调用JavaScript函数创建对象URL
+            return await JSRuntime.InvokeAsync<string>("createAudioObjectURL", streamRef, ContentType);
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"直接对象URL创建失败: {ex.Message}";
+            return await CreateAlternativeUrl(audioFileContent, ContentType);
+        }
+    }
+    /// <summary>
+    /// 异步创建直接对象URL
+    /// </summary>
+    /// <param name="file">浏览器文件对象</param>
+    /// <returns>任务完成时返回直接对象URL</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private async Task<string?> CreateDirectObjectUrl(IBrowserFile file)
+    {
+        try
+        {
+            var maxAllowedSize = Math.Max( 10 * 1024 * 1024,file.Size); // 10MB
+            debugInfo = $"创建对象URL: {file.Name} ({GetFileSize(file.Size)})";
+            StateHasChanged();
+
+            using var fileStream = file.OpenReadStream(maxAllowedSize);
+            var streamRef = new DotNetStreamReference(fileStream);
+
+            // 调用JavaScript函数创建对象URL
+            return await JSRuntime.InvokeAsync<string>("createAudioObjectURL", streamRef, file.ContentType);
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"直接对象URL创建失败: {ex.Message}";
+            return await CreateAlternativeUrl(file);
+        }
+    }
+    /// <summary>
+    /// 异步创建备用URL（Base64编码）
+    /// </summary>
+    /// <param name="audioFileContent">音频文件内容</param>
+    /// <param name="contentType">音频文件类型</param>
+    /// <returns>任务完成时返回备用URL</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private async Task<string?> CreateAlternativeUrl(byte[] audioFileContent, string contentType)
+    {
+        await Task.CompletedTask;
+        try
+        {
+            debugInfo = "尝试备用方案 (Base64)...";
+            StateHasChanged();
+
+            const int maxAllowedSize = 5 * 1024 * 1024; // 5MB
+            if (audioFileContent.Length > maxAllowedSize)
+            {
+                debugInfo = $"文件过大: {GetFileSize(audioFileContent.LongLength)}";
+                return null;
+            }
+
+            var base64String = Convert.ToBase64String(audioFileContent);
+            var dataUrl = $"data:{contentType};base64,{base64String}";
+
+            debugInfo = "Base64 URL创建成功";
+            return dataUrl;
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"备用方案失败: {ex.Message}";
+            return null;
+        }
+    }
+    /// <summary>
+    /// 异步创建备用URL（Base64编码）
+    /// </summary>
+    /// <param name="file">浏览器文件对象</param>
+    /// <returns>任务完成时返回备用URL</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private async Task<string?> CreateAlternativeUrl(IBrowserFile file)
+    {
+        const int maxAllowedSize = 5 * 1024 * 1024; // 5MB
+        const int bufferSize = 81920; // 80KB
+
+        try
+        {
+            debugInfo = "尝试备用方案 (Base64)...";
+            StateHasChanged();
+
+            // 首先检查文件大小
+            if (file.Size > maxAllowedSize)
+            {
+                debugInfo = $"文件过大: {GetFileSize(file.Size)}";
+                return null;
+            }
+
+            using var stream = file.OpenReadStream(maxAllowedSize);
+            using var memoryStream = new MemoryStream();
+
+            var buffer = new byte[bufferSize];
+            int bytesRead;
+
+            while ((bytesRead = await stream.ReadAsync(buffer)) > 0)
+            {
+                await memoryStream.WriteAsync(buffer.AsMemory(0, bytesRead));
+
+                // 检查是否超过限制
+                if (memoryStream.Length > maxAllowedSize)
+                {
+                    debugInfo = "读取过程中文件超过大小限制";
+                    return null;
+                }
+            }
+
+            var base64String = Convert.ToBase64String(memoryStream.ToArray());
+            var dataUrl = $"data:{file.ContentType};base64,{base64String}";
+
+            debugInfo = "Base64 URL创建成功";
+            return dataUrl;
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"备用方案失败: {ex.Message}";
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 异步检查音频元素状态
+    /// </summary>
+    /// <returns>任务完成时返回音频元素状态</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private async Task CheckAudioState()
+    {
+        try
+        {
+            var state = await JSRuntime.InvokeAsync<object>("getAudioElementState", audioElement);
+            debugInfo = $"音频状态: {System.Text.Json.JsonSerializer.Serialize(state)}";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"检查音频状态失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+    /// <summary>
+    /// 异步重新加载音频
+    /// </summary>
+    /// <returns>任务完成时返回音频元素状态</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    private async Task ReloadAudio()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("reloadAudio", audioElement);
+            debugInfo = "音频重新加载中...";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"重新加载失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+    /// <summary>
+    /// 异步处置对象URL
+    /// </summary>
+    /// <returns>任务完成时返回音频元素状态</returns>
+    /// <exception cref="InvalidOperationException">当连接断开时抛出</exception>
+    /// <exception cref="Exception">其他异常时抛出</exception>
+    public async ValueTask DisposeAsync()
+    {
+        // 清理对象URL
+        if (!string.IsNullOrEmpty(localAudioUrl))
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("URL.revokeObjectURL", localAudioUrl);
+                debugInfo = "对象URL已清理";
+            }
+            catch (Exception ex)
+            {
+                debugInfo = $"清理对象URL时出错: {ex.Message}";
+            }
+        }
+    }
+}

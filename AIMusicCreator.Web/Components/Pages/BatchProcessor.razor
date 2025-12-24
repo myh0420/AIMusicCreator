@@ -1,0 +1,271 @@
+﻿@page "/batch-processor"
+@using AIMusicCreator.Entity
+@using AIMusicCreator.Web.Services
+@using AIMusicCreator.Utils
+@inject ApiService Api
+@inject IJSRuntime JsRuntime
+
+<div class="container mt-4">
+    <h2>音频批量处理</h2>
+    <hr />
+
+    <!-- 功能切换 -->
+    <div class="btn-group mb-4" role="group">
+        <button type="button" class="btn @(currentMode == "cut" ? "btn-primary" : "btn-outline-primary")" @onclick='() => currentMode = "cut"'>
+            批量裁剪
+        </button>
+        <button type="button" class="btn @(currentMode == "denoise" ? "btn-primary" : "btn-outline-primary")" @onclick='() => currentMode = "denoise"'>
+            批量降噪
+        </button>
+        <button type="button" class="btn @(currentMode == "convert" ? "btn-primary" : "btn-outline-primary")" @onclick='() => currentMode = "convert"'>
+            批量格式转换
+        </button>
+    </div>
+
+    <!-- 文件上传区 -->
+    <div class="mb-3">
+        <label class="form-label">上传音频文件（支持多个）</label>
+        <InputFile OnChange="OnFilesSelected" accept="audio/wav,audio/mp3,audio/flac" multiple />
+    </div>
+
+    @if (selectedFiles.Any())
+    {
+        <div class="alert alert-info mb-3">
+            已选择 @selectedFiles.Count 个文件：@string.Join("、", selectedFiles.Take(3).Select(f => f.FileName)) @(selectedFiles.Count > 3 ? $"等{selectedFiles.Count}个" : "")
+        </div>
+
+        <!-- 模式参数 -->
+        <div class="card mb-3">
+            <div class="card-body">
+                @if (currentMode == "cut")
+                {
+                    <h5>批量裁剪参数</h5>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label>开始时间（秒）</label>
+                            <input type="number" @bind="batchCutStart" min="0" step="0.1" class="form-control" />
+                        </div>
+                        <div class="col-md-6">
+                            <label>结束时间（秒）</label>
+                            <input type="number" @bind="batchCutEnd" min="@batchCutStart" step="0.1" class="form-control"/>
+                        </div>
+                    </div>
+                }
+                else if (currentMode == "denoise")
+                {
+                    <h5>批量降噪参数</h5>
+                    <div class="row g-3">
+                        <div class="col-md-12">
+                            <label>降噪强度（0-100）</label>
+                            <input type="range" @bind="denoiseStrength" min="0" max="100" step="1" class="form-range" />
+                            <small class="text-muted">当前：@denoiseStrength（值越高降噪越明显，可能损失细节）</small>
+                        </div>
+                    </div>
+                }
+                else if (currentMode == "convert")
+                {
+                    <h5>批量格式转换参数</h5>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label>目标格式</label>
+                            <select @bind="batchTargetFormat" class="form-select">
+                                <option value="wav">WAV（无损）</option>
+                                <option value="mp3">MP3（兼容性强）</option>
+                                <option value="flac">FLAC（无损压缩）</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6">
+                            <label>MP3音质（仅MP3格式生效）</label>
+                            <select @bind="batchMp3Quality" class="form-select">
+                                <option value="128">128 kbps</option>
+                                <option value="192">192 kbps</option>
+                                <option value="320">320 kbps</option>
+                            </select>
+                        </div>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- 执行按钮 -->
+        <button @onclick="StartBatchProcess" class="btn btn-primary" disabled="@isProcessing">
+            @(isProcessing ? "处理中..." : $"开始批量处理（{selectedFiles.Count}个文件）")
+        </button>
+
+        <!-- 处理结果 -->
+        @if (processedFiles.Any())
+        {
+            <div class="card mt-4">
+                <div class="card-header">
+                    <h5>处理结果</h5>
+                </div>
+                <div class="card-body">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>原文件</th>
+                                    <th>状态</th>
+                                    <th>操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                @foreach (var file in processedFiles)
+                                {
+                                    <tr>
+                                        <td>@file.OriginalFileName</td>
+                                        <td><span class="badge bg-success">已完成</span></td>
+                                        <td>
+                                            <button @onclick="() => DownloadProcessedFile(file)" class="btn btn-sm btn-outline-success">下载</button>
+                                        </td>
+                                    </tr>
+                                }
+                            </tbody>
+                        </table>
+                    </div>
+                    <button @onclick="DownloadAllProcessedFiles" class="btn btn-outline-primary w-100 mt-2">打包下载全部</button>
+                </div>
+            </div>
+        }
+    }
+    else
+    {
+        <div class="alert alert-info text-center py-5">
+            请上传音频文件开始批量处理
+        </div>
+    }
+</div>
+
+@code {
+    private string currentMode = "cut"; // cut:批量裁剪, denoise:批量降噪, convert:批量转换
+    private List<BatchFileItem> selectedFiles = new();
+    private List<ProcessedFileItem> processedFiles = new();
+    private bool isProcessing;
+
+    // 批量裁剪参数
+    private double batchCutStart = 0;
+    private double batchCutEnd = 5;
+
+    // 批量降噪参数
+    private int denoiseStrength = 50;
+
+    // 批量转换参数
+    private string batchTargetFormat = "mp3";
+    private int batchMp3Quality = 192;
+
+    // 选择文件
+    private async Task OnFilesSelected(InputFileChangeEventArgs e)
+    {
+        foreach (var file in e.GetMultipleFiles())
+        {
+            var extension = Path.GetExtension(file.Name).TrimStart('.').ToLower();
+            if (!new[] { "wav", "mp3", "flac" }.Contains(extension))
+            {
+                await JsRuntime.InvokeVoidAsync("alert", $"文件 {file.Name} 格式不支持，仅支持WAV/MP3/FLAC");
+                continue;
+            }
+
+            // 读取文件数据
+            using var stream = file.OpenReadStream();
+            var data = new byte[stream.Length];
+            await stream.ReadAsync(data.AsMemory(0, (int)stream.Length));
+
+            selectedFiles.Add(new BatchFileItem
+            {
+                FileName = file.Name,
+                Data = data,
+                OriginalFormat = extension,
+                MimeType = MidiUtils.GetMimeType(extension)
+            });
+        }
+    }
+
+    // 开始批量处理
+    private async Task StartBatchProcess()
+    {
+        if (!selectedFiles.Any())
+        {
+            await JsRuntime.InvokeVoidAsync("alert", "请先上传音频文件");
+            return;
+        }
+
+        isProcessing = true;
+        processedFiles.Clear();
+
+        try
+        {
+            foreach (var file in selectedFiles)
+            {
+                byte[]? processedData = null;
+                string targetFileName = "";
+                string targetMimeType = "";
+
+                switch (currentMode)
+                {
+                    case "cut":
+                        // 批量裁剪
+                        processedData = await Api.CutAudio(file.Data, batchCutStart, batchCutEnd);
+                        targetFileName = Path.ChangeExtension(file.FileName, $"cut_{batchCutStart}-{batchCutEnd}s.{file.OriginalFormat}");
+                        targetMimeType = file.MimeType;
+                        break;
+
+                    case "denoise":
+                        // 批量降噪
+                        processedData = await Api.DenoiseAudio(file.Data, denoiseStrength / 100.0);
+                        targetFileName = Path.ChangeExtension(file.FileName, $"denoised.{file.OriginalFormat}");
+                        targetMimeType = file.MimeType;
+                        break;
+
+                    case "convert":
+                        // 批量格式转换
+                        processedData = await Api.ConvertAudioFormat(file.Data, file.OriginalFormat, batchTargetFormat, batchMp3Quality);
+                        targetFileName = Path.ChangeExtension(file.FileName, batchTargetFormat);
+                        targetMimeType = MidiUtils.GetMimeType(batchTargetFormat);
+                        break;
+                }
+
+                if (processedData != null)
+                {
+                    processedFiles.Add(new ProcessedFileItem
+                    {
+                        OriginalFileName = file.FileName,
+                        ProcessedFileName = targetFileName,
+                        Data = processedData,
+                        MimeType = targetMimeType
+                    });
+                }
+            }
+
+            await JsRuntime.InvokeVoidAsync("alert", $"批量处理完成！共处理 {processedFiles.Count} 个文件");
+        }
+        catch (Exception ex)
+        {
+            await JsRuntime.InvokeVoidAsync("alert", $"批量处理失败: {ex.Message}");
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    // 下载单个处理后的文件
+    private async Task DownloadProcessedFile(ProcessedFileItem file)
+    {
+        await Api.SaveFile(file.Data, file.ProcessedFileName, file.MimeType);
+    }
+
+    // 打包下载全部
+    private async Task DownloadAllProcessedFiles()
+    {
+        var filesToZip = processedFiles.Select(f => new
+        {
+            Name = f.ProcessedFileName,
+            Data = Convert.ToBase64String(f.Data)
+        }).ToList();
+
+        await JsRuntime.InvokeVoidAsync("downloadZip", $"batch_processed_{currentMode}.zip", filesToZip);
+    }
+
+   
+
+}

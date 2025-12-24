@@ -1,0 +1,105 @@
+﻿@page "/audio-upload"
+@using AIMusicCreator.Web.Shared
+@rendermode InteractiveServer
+
+<PageTitle>音频上传 - AI Music Creator</PageTitle>
+
+<h3>音频上传</h3>
+
+<InputFile OnChange="HandleFileSelected" accept="audio/wav,audio/mp3" />
+
+@if (selectedFile != null)
+{
+    <div class="alert alert-info mt-3">
+        <p><strong>文件信息:</strong></p>
+        <p>名称: @selectedFile.Name</p>
+        <p>大小: @(selectedFile.Size / 1024 / 1024) MB</p>
+        <p>类型: @selectedFile.ContentType</p>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(audioDataUrl))
+{
+    <div class="alert alert-warning mt-3">
+        <p><strong>AudioUrl 调试信息:</strong></p>
+        <p>类型: @(audioDataUrl.StartsWith("data:") ? "Data URL" : "其他")</p>
+        <p>长度: @audioDataUrl.Length 字符</p>
+        <p>MIME: @GetMimeType(audioDataUrl)</p>
+        <p>前缀: @audioDataUrl.Substring(0, Math.Min(100, audioDataUrl.Length))</p>
+    </div>
+}
+<AudioPlay_Test @ref="AudioPlay_Test" SelectedFile="@selectedFile"></AudioPlay_Test>
+@* <AudioStreamPlayer @ref="audioPlayer"
+                   AudioUrl="@audioDataUrl" 
+             FileName="@fileName" /> *@
+
+@* <AudioDiagnostics AudioUrl="@audioDataUrl" 
+                  AudioElement="@(audioPlayer?.AudioElementRef ?? default)" /> *@
+
+@code {
+    // private AudioStreamPlayer? audioPlayer;
+    private AudioPlay_Test? AudioPlay_Test;
+    private IBrowserFile? selectedFile;
+    private string audioDataUrl = string.Empty;
+    private string fileName = string.Empty;
+    private long fileSize = 0L;
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        selectedFile = e.File;
+        fileName = selectedFile.Name;
+        fileSize = selectedFile.Size;
+
+        try
+        {
+            Console.WriteLine($"开始处理文件: {fileName}, 大小: {selectedFile.Size} bytes");
+
+            // 使用较小的文件进行测试
+            using var stream = selectedFile.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024); // 5MB 限制
+            
+            // 读取文件
+            var memoryStream = new MemoryStream();
+            await stream.CopyToAsync(memoryStream);
+            var fileBytes = memoryStream.ToArray();
+
+            Console.WriteLine($"文件读取完成: {fileBytes.Length} bytes");
+
+            // 确定 MIME 类型
+            string mimeType = GetMimeTypeFromFileName(fileName);
+            Console.WriteLine($"使用 MIME 类型: {mimeType}");
+
+            // 创建 Data URL
+            audioDataUrl = $"data:{mimeType};base64,{Convert.ToBase64String(fileBytes)}";
+            Console.WriteLine($"Data URL 创建完成，长度: {audioDataUrl.Length}");
+
+            // 确保状态更新
+            await InvokeAsync(StateHasChanged);
+
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"文件处理错误: {ex.Message}");
+        }
+    }
+
+    private string GetMimeTypeFromFileName(string fileName)
+    {
+        var extension = Path.GetExtension(fileName).ToLower();
+        return extension switch
+        {
+            ".mp3" => "audio/mpeg",
+            ".wav" => "audio/wav",
+            _ => "audio/mpeg"
+        };
+    }
+
+    private string GetMimeType(string dataUrl)
+    {
+        if (dataUrl.StartsWith("data:"))
+        {
+            var parts = dataUrl.Split(';');
+            return parts.Length > 0 ? parts[0].Replace("data:", "") : "未知";
+        }
+        return "非 Data URL";
+    }
+}

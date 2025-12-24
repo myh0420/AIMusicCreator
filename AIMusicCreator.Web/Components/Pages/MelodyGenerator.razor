@@ -1,0 +1,104 @@
+﻿@page "/generate-melody"
+@using AIMusicCreator.Web.Services
+@using AIMusicCreator.Web.Shared
+@inject ApiService Api
+@inject NavigationManager Nav
+@rendermode InteractiveServer
+
+<div class="container mt-4">
+    <h2>旋律生成</h2>
+    <hr />
+
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label class="form-label">音乐风格</label>
+                <select @bind="Style" class="form-select">
+                    <option value="pop">流行</option>
+                    <option value="classical">古典</option>
+                    <option value="electronic">电子</option>
+                    <option value="jazz">爵士</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">情绪</label>
+                <select @bind="Mood" class="form-select">
+                    <option value="happy">欢快</option>
+                    <option value="sad">悲伤</option>
+                    <option value="calm">平静</option>
+                    <option value="exciting">激昂</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">速度 (BPM)</label>
+                <input type="range" @bind="Bpm" min="60" max="180" class="form-range" />
+                <div class="text-center">@Bpm BPM</div>
+            </div>
+
+            <button @onclick="GenerateMelody" class="btn btn-primary w-100" disabled="@isGenerating">
+                @(isGenerating ? "生成中..." : "生成旋律")
+            </button>
+        </div>
+
+        <div class="col-md-6">
+            @if (generatedAudioData.Length > 0)
+            {
+                <AudioPlay_Test FileContent="@generatedAudioData" ContentType="@contentType" localFileName="处理后的视频"></AudioPlay_Test>
+                <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-2">
+                    <button @onclick="SaveMelody" class="btn btn-success">保存旋律</button>
+                    <button @onclick="NavigateToAccompaniment" class="btn btn-secondary">生成伴奏</button>
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-info h-100 d-flex align-items-center justify-content-center">
+                    生成的旋律将显示在这里
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private string Style { get; set; } = "pop";
+    private string Mood { get; set; } = "happy";
+    private int Bpm { get; set; } = 120;
+    private bool isGenerating { get; set; }
+    private string generatedAudioUrl { get; set; } = string.Empty;
+    private byte[] generatedAudioData { get; set; } = [];
+    private string contentType { get; set; } = "audio/wav";
+    [Inject] private IJSRuntime JSRuntime { get; set; } = null!;
+    private async Task GenerateMelody()
+    {
+        isGenerating = true;
+        try
+        {
+            generatedAudioData = await Api.GenerateMelody(Style, Mood, Bpm);
+            // generatedAudioUrl = Api.GetAudioUrl(generatedAudioData);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"生成失败: {ex.Message}");
+        }
+        finally
+        {
+            isGenerating = false;
+        }
+    }
+
+    private async Task SaveMelody()
+    {
+        if (generatedAudioData != null)
+        {
+            await Api.SaveFile(generatedAudioData, $"melody_{Style}_{Mood}_{Bpm}.wav", "audio/wav");
+        }
+    }
+
+    private void NavigateToAccompaniment()
+    {
+        // 将生成的旋律数据导航到混音器页面，可通过本地存储传递数据
+        Nav.NavigateTo("/multi-track-mixer");
+    }
+}

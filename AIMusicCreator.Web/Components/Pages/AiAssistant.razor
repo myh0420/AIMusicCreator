@@ -1,0 +1,272 @@
+﻿@page "/ai-assistant"
+@using AIMusicCreator.Web.Services
+@using AIMusicCreator.Web.Shared
+@inject ApiService Api
+@inject IJSRuntime JsRuntime
+@inject NavigationManager NavigationManager;
+
+<div class="container mt-4">
+    <h2>AI辅助创作工具</h2>
+    <hr />
+
+    <div class="row g-4">
+        <!-- AI生成歌词 -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">AI生成歌词</h5>
+                    <div class="mb-3">
+                        <label class="form-label">主题</label>
+                        <input type="text" @bind="lyricTheme" class="form-control" placeholder="例如：青春、旅行、治愈" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">风格</label>
+                        <select @bind="lyricStyle" class="form-select">
+                            <option value="pop">流行</option>
+                            <option value="rap">说唱</option>
+                            <option value="poetic">诗意</option>
+                            <option value="folk">民谣</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">段落数</label>
+                        <input type="number" @bind="lyricParagraphs" min="1" max="5" class="form-control" />
+                    </div>
+                    <button @onclick="GenerateLyrics" class="btn btn-primary w-100" disabled="@isGenerating">
+                        @(isGenerating ? "生成中..." : "生成歌词")
+                    </button>
+
+                    @if (!string.IsNullOrEmpty(generatedLyrics))
+                    {
+                        <div class="mt-3 card p-3">
+                            <h6>生成结果</h6>
+                            <pre class="text-wrap">@generatedLyrics</pre>
+                            <div class="d-flex gap-2 mt-2">
+                                <button @onclick="CopyLyrics" class="btn btn-sm btn-outline-primary">复制歌词</button>
+                                <button @onclick="GotoVocalCreator" class="btn btn-sm btn-secondary">去合成人声</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- AI旋律灵感 -->
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">AI旋律灵感</h5>
+                    <div class="mb-3">
+                        <label class="form-label">情绪</label>
+                        <select @bind="melodyMood" class="form-select">
+                            <option value="happy">欢快</option>
+                            <option value="sad">悲伤</option>
+                            <option value="calm">平静</option>
+                            <option value="exciting">激昂</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">风格</label>
+                        <select @bind="melodyStyle" class="form-select">
+                            <option value="pop">流行</option>
+                            <option value="classical">古典</option>
+                            <option value="electronic">电子</option>
+                            <option value="jazz">爵士</option>
+                        </select>
+                    </div>
+                    <button @onclick="GenerateMelodyInspiration" class="btn btn-primary w-100" disabled="@isGenerating">
+                        @(isGenerating ? "生成中..." : "生成旋律灵感")
+                    </button>
+
+                    @if (melodyInspirationUrl != null)
+                    {
+                        <div class="mt-3">
+                            <h6>旋律预览</h6>
+                            <AudioPlayer AudioUrl="@melodyInspirationUrl" FileName="AI旋律灵感" />
+                            <div class="d-flex gap-2 mt-2">
+                                <button @onclick="SaveMelodyInspiration" class="btn btn-sm btn-outline-primary">保存旋律</button>
+                                <button @onclick="GotoAccompaniment" class="btn btn-sm btn-secondary">生成伴奏</button>
+                            </div>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- AI和弦进行建议 -->
+        <div class="col-md-12">
+            <div class="card">
+                <div class="card-body">
+                    <h5 class="card-title">AI和弦进行建议</h5>
+                    <div class="row g-3">
+                        <div class="col-md-4">
+                            <label class="form-label">调性</label>
+                            <select @bind="chordKey" class="form-select">
+                                <option value="C">C大调</option>
+                                <option value="Am">A小调</option>
+                                <option value="G">G大调</option>
+                                <option value="Em">E小调</option>
+                                <option value="F">F大调</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">风格</label>
+                            <select @bind="chordStyle" class="form-select">
+                                <option value="pop">流行</option>
+                                <option value="blues">布鲁斯</option>
+                                <option value="jazz">爵士</option>
+                                <option value="rock">摇滚</option>
+                            </select>
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">段落类型</label>
+                            <select @bind="chordSection" class="form-select">
+                                <option value="verse">主歌</option>
+                                <option value="chorus">副歌</option>
+                                <option value="bridge">桥段</option>
+                            </select>
+                        </div>
+                    </div>
+                    <button @onclick="GenerateChordProgression" class="btn btn-primary w-100 mt-3" disabled="@isGenerating">
+                        @(isGenerating ? "生成中..." : "生成和弦进行")
+                    </button>
+
+                    @if (!string.IsNullOrEmpty(chordProgression))
+                    {
+                        <div class="mt-3 card p-3">
+                            <h6>和弦进行建议</h6>
+                            <div class="fs-5 mb-2">@chordProgression</div>
+                            <div class="text-muted mb-2">
+                                <strong>说明：</strong> @chordExplanation
+                            </div>
+                            <button @onclick="CopyChords" class="btn btn-sm btn-outline-primary">复制和弦进行</button>
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    // 歌词生成参数
+    private string lyricTheme = "青春";
+    private string lyricStyle = "pop";
+    private int lyricParagraphs = 2;
+    private string generatedLyrics = string.Empty;
+
+    // 旋律灵感参数
+    private string melodyMood = "happy";
+    private string melodyStyle = "pop";
+    private string melodyInspirationUrl = string.Empty;
+    private byte[] melodyInspirationData = [];
+
+    // 和弦进行参数
+    private string chordKey = "C";
+    private string chordStyle = "pop";
+    private string chordSection = "verse";
+    private string chordProgression = string.Empty;
+    private string chordExplanation = string.Empty;
+
+    private bool isGenerating;
+
+    // 生成歌词
+    private async Task GenerateLyrics()
+    {
+        if (string.IsNullOrWhiteSpace(lyricTheme))
+        {
+            await JsRuntime.InvokeVoidAsync("alert", "请输入歌词主题");
+            return;
+        }
+
+        isGenerating = true;
+        try
+        {
+            generatedLyrics = await Api.GenerateLyrics(lyricTheme, lyricStyle, lyricParagraphs);
+        }
+        catch (Exception ex)
+        {
+            await JsRuntime.InvokeVoidAsync("alert", $"歌词生成失败: {ex.Message}");
+        }
+        finally
+        {
+            isGenerating = false;
+        }
+    }
+
+    // 生成旋律灵感
+    private async Task GenerateMelodyInspiration()
+    {
+        isGenerating = true;
+        try
+        {
+            melodyInspirationData = await Api.GenerateMelodyInspiration(melodyMood, melodyStyle);
+            melodyInspirationUrl = Api.GetAudioUrl(melodyInspirationData);
+        }
+        catch (Exception ex)
+        {
+            await JsRuntime.InvokeVoidAsync("alert", $"旋律灵感生成失败: {ex.Message}");
+        }
+        finally
+        {
+            isGenerating = false;
+        }
+    }
+
+    // 生成和弦进行
+    private async Task GenerateChordProgression()
+    {
+        isGenerating = true;
+        try
+        {
+            var result = await Api.GenerateChordProgression(chordKey, chordStyle, chordSection);
+            chordProgression = result.Progression;
+            chordExplanation = result.Explanation;
+        }
+        catch (Exception ex)
+        {
+            await JsRuntime.InvokeVoidAsync("alert", $"和弦进行生成失败: {ex.Message}");
+        }
+        finally
+        {
+            isGenerating = false;
+        }
+    }
+
+    // 复制歌词
+    private async Task CopyLyrics()
+    {
+        await JsRuntime.InvokeVoidAsync("navigator.clipboard.writeText", generatedLyrics);
+        await JsRuntime.InvokeVoidAsync("alert", "歌词已复制到剪贴板");
+    }
+
+    // 复制和弦进行
+    private async Task CopyChords()
+    {
+        await JsRuntime.InvokeVoidAsync("navigator.clipboard.writeText", chordProgression);
+        await JsRuntime.InvokeVoidAsync("alert", "和弦进行已复制到剪贴板");
+    }
+
+    // 保存旋律灵感
+    private async Task SaveMelodyInspiration()
+    {
+        if (melodyInspirationData != null)
+        {
+            await Api.SaveFile(melodyInspirationData, $"ai_melody_{melodyMood}_{melodyStyle}.wav", "audio/wav");
+        }
+    }
+
+    // 跳转到人声合成页面
+    private void GotoVocalCreator()
+    {
+        // 实际项目中可通过本地存储传递歌词
+        NavigationManager.NavigateTo("/vocal-creator");
+    }
+
+    // 跳转到伴奏生成页面
+    private void GotoAccompaniment()
+    {
+        // 实际项目中可通过本地存储传递旋律数据
+        NavigationManager.NavigateTo("/accompaniment");
+    }
+}

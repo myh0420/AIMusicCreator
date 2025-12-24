@@ -1,0 +1,256 @@
+@page "/project-manager"
+@inject ApiService Api
+@inject IJSRuntime JsRuntime
+@inject NavigationManager NavigationManager
+@using System.Text.Json
+@using AIMusicCreator.Web.Services
+
+<div class="container mt-4">
+    <h2>创作项目管理</h2>
+    <hr />
+
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">新建项目</h5>
+                    <div class="mb-3">
+                        <label class="form-label">项目名称</label>
+                        <input type="text" @bind="newProjectName" class="form-control" placeholder="例如：夏日主题曲" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label">项目描述（可选）</label>
+                        <textarea @bind="newProjectDesc" class="form-control" rows="3" placeholder="简要描述项目内容..."></textarea>
+                    </div>
+                    <button @onclick="CreateNewProject" class="btn btn-primary w-100">创建项目并开始编辑</button>
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">我的项目</h5>
+                    @if (projects.Any())
+                    {
+                        <div class="list-group">
+                            @foreach (var project in projects)
+                            {
+                                <div class="list-group-item d-flex justify-content-between align-items-center">
+                                    <div>
+                                        <h6 class="mb-0">@project.Name</h6>
+                                        <small class="text-muted">创建时间：@project.CreateTime.ToString("yyyy-MM-dd HH:mm")</small>
+                                        <div class="small mt-1">@project.Description</div>
+                                    </div>
+                                    <div class="d-flex gap-1">
+                                        <button @onclick="() => LoadProject(project.Id)" class="btn btn-sm btn-outline-primary">加载</button>
+                                        <button @onclick="() => DeleteProject(project.Id)" class="btn btn-sm btn-outline-danger">删除</button>
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info text-center py-3">
+                            暂无保存的项目，新建项目开始创作吧！
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 项目导出/导入 -->
+    <div class="card mt-4">
+        <div class="card-header">
+            <h5>项目备份与恢复</h5>
+        </div>
+        <div class="card-body d-flex gap-3">
+            <div class="flex-grow-1">
+                <label class="form-label">导入项目（上传备份文件）</label>
+                <InputFile OnChange="ImportProject" accept=".musicproj" class="form-control" />
+            </div>
+            <div class="align-self-end">
+                <button @onclick="ExportCurrentProject" class="btn btn-secondary" disabled="@(currentProject == null)">
+                    导出当前项目
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    // 项目模型
+    private class Project
+    {
+        public Guid Id { get; set; } = Guid.NewGuid();
+        public string Name { get; set; } = "";
+        public string Description { get; set; } = "";
+        public DateTime CreateTime { get; set; } = DateTime.Now;
+        public string ProjectData { get; set; } = ""; // 序列化后的项目数据（Base64）
+    }
+
+    // 当前项目数据（包含所有创作内容）
+    private class ProjectData
+    {
+        // 裁剪/拼接数据
+        public List<JoinFileItem> JoinFiles { get; set; } = new();
+        public byte[] CutResultData { get; set; } = [];
+        public string CutResultUrl { get; set; } = string.Empty;
+
+        // 多轨混音数据
+        public List<AudioTrack> MixTracks { get; set; } = new();
+        public byte[] MixResultData { get; set; } = [];
+        public string MixResultUrl { get; set; } = string.Empty;
+
+        // AI生成内容
+        public string GeneratedLyrics { get; set; } = "";
+        public string ChordProgression { get; set; } = "";
+    }
+
+    // 依赖模型（复用之前的JoinFileItem、AudioTrack）
+    private class JoinFileItem
+    {
+        public string SafeFileName { get; set; } = "";
+        public string Duration { get; set; } = "";
+        public byte[] Data { get; set; } = [];
+        public string MimeType { get; set; } = "";
+    }
+
+    private class AudioTrack
+    {
+        public string FileName { get; set; } = "";
+        public string AudioUrl { get; set; } = "";
+        public byte[] AudioData { get; set; } = [];
+        public int Volume { get; set; } = 100;
+        public double DelaySeconds { get; set; } = 0;
+        public bool IsMuted { get; set; } = false;
+        public bool IsSolo { get; set; } = false;
+    }
+
+    private List<Project> projects = new();
+    private string newProjectName = "";
+    private string newProjectDesc = "";
+    private Project? currentProject = null;
+    private bool _projectsLoaded = false;
+
+    // 页面加载时加载所有项目
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !_projectsLoaded)
+        {
+            await LoadAllProjects();
+            _projectsLoaded = true;
+        }
+    }
+
+    // 加载所有项目（实际项目中应存储在后端数据库）
+    private async Task LoadAllProjects()
+    {
+        // 模拟从后端加载（实际项目替换为API调用）
+        var savedProjects = await JsRuntime.InvokeAsync<string>("localStorage.getItem", "musicProjects");
+        if (!string.IsNullOrEmpty(savedProjects))
+        {
+            projects = JsonSerializer.Deserialize<List<Project>>(savedProjects) ?? new List<Project>();
+        }
+    }
+
+    // 新建项目
+    private async Task CreateNewProject()
+    {
+        if (string.IsNullOrWhiteSpace(newProjectName))
+        {
+            await JsRuntime.InvokeVoidAsync("alert", "请输入项目名称");
+            return;
+        }
+
+        // 创建新项目
+        var newProject = new Project
+        {
+            Name = newProjectName,
+            Description = newProjectDesc,
+            CreateTime = DateTime.Now,
+            ProjectData = JsonSerializer.Serialize(new ProjectData()) // 初始空数据
+        };
+
+        // 保存到项目列表
+        projects.Add(newProject);
+        await SaveProjectsToStorage();
+
+        // 加载项目并跳转到多轨混音页面
+        currentProject = newProject;
+        NavigationManager.NavigateTo($"/multi-track-mixer?projectId={newProject.Id}");
+    }
+
+    // 加载项目
+    private async Task LoadProject(Guid projectId)
+    {
+        await Task.CompletedTask;
+        var project = projects.FirstOrDefault(p => p.Id == projectId);
+        if (project == null) return;
+
+        currentProject = project;
+        // 跳转到多轨混音页面（实际项目中需在目标页面加载项目数据）
+        NavigationManager.NavigateTo($"/multi-track-mixer?projectId={project.Id}");
+    }
+
+    // 删除项目
+    private async Task DeleteProject(Guid projectId)
+    {
+        if (await JsRuntime.InvokeAsync<bool>("confirm", "确定要删除该项目吗？删除后不可恢复！"))
+        {
+            projects.RemoveAll(p => p.Id == projectId);
+            await SaveProjectsToStorage();
+        }
+    }
+
+    // 导出当前项目（生成备份文件）
+    private async Task ExportCurrentProject()
+    {
+        if (currentProject == null) return;
+
+        // 序列化项目数据为JSON，生成文件下载
+        var projectJson = JsonSerializer.Serialize(currentProject, new JsonSerializerOptions { WriteIndented = true });
+        var projectBytes = System.Text.Encoding.UTF8.GetBytes(projectJson);
+
+        await Api.SaveFile(projectBytes, $"{currentProject.Name}.musicproj", "application/json");
+    }
+
+    // 导入项目（上传备份文件）
+    private async Task ImportProject(InputFileChangeEventArgs e)
+    {
+        if (e.FileCount == 0) return;
+        var file = e.File;
+
+        // 读取上传的项目文件
+        using var stream = file.OpenReadStream();
+        var data = new byte[stream.Length];
+        await stream.ReadAsync(data.AsMemory(0, (int)stream.Length));
+        var projectJson = System.Text.Encoding.UTF8.GetString(data);
+
+        // 反序列化项目
+        var importedProject = JsonSerializer.Deserialize<Project>(projectJson);
+        if (importedProject == null)
+        {
+            await JsRuntime.InvokeVoidAsync("alert", "项目文件格式无效");
+            return;
+        }
+
+        // 避免ID冲突（重新生成ID）
+        importedProject.Id = Guid.NewGuid();
+        importedProject.CreateTime = DateTime.Now;
+
+        // 添加到项目列表
+        projects.Add(importedProject);
+        await SaveProjectsToStorage();
+        await JsRuntime.InvokeVoidAsync("alert", "项目导入成功！");
+    }
+
+    // 保存项目到本地存储（实际项目替换为后端API）
+    private async Task SaveProjectsToStorage()
+    {
+        var projectsJson = JsonSerializer.Serialize(projects);
+        await JsRuntime.InvokeVoidAsync("localStorage.setItem", "musicProjects", projectsJson);
+    }
+}

@@ -1,0 +1,363 @@
+@page "/vocal-creator"
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavigationManager
+@inject ILogger<VocalCreator> Logger
+@using AIMusicCreator.Web.Services
+@using Microsoft.JSInterop
+
+<div class="container mt-4">
+    <h1 class="text-center mb-5">AI 人声创作</h1>
+    <p class="text-center mb-5">创作你的AI生成人声</p>
+    
+    <div class="row justify-content-center">
+        <div class="col-md-8">
+            <!-- 输入区域 -->
+            <div class="card mb-4">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">输入歌词/文本</h5>
+                </div>
+                <div class="card-body">
+                    <textarea 
+                        class="form-control" 
+                        rows="6" 
+                        placeholder="请输入要转换为人声的文本或歌词..."
+                        bind-value="_textInput"
+                        disabled="_isGenerating"></textarea>
+                </div>
+            </div>
+            
+            <!-- 参数设置 -->
+            <div class="card mb-4">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0">生成参数</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="modelSelect" class="form-label">选择模型</label>
+                            <select 
+                                id="modelSelect" 
+                                class="form-select"
+                                bind-value="_selectedModel"
+                                disabled="_isGenerating">
+                                <option value="standard">标准模型</option>
+                                <option value="high-quality">高质量模型</option>
+                                <option value="emotional">情感模型</option>
+                            </select>
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="voiceSelect" class="form-label">选择声音</label>
+                            <select 
+                                id="voiceSelect" 
+                                class="form-select"
+                                bind-value="_selectedVoice"
+                                disabled="_isGenerating">
+                                <option value="male">男声</option>
+                                <option value="female">女声</option>
+                                <option value="neutral">中性</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="row">
+                        <div class="col-md-6 mb-3">
+                            <label for="speedSlider" class="form-label">语速: @_speed</label>
+                            <input 
+                                type="range" 
+                                id="speedSlider"
+                                min="0.5" 
+                                max="2.0" 
+                                step="0.1"
+                                class="form-range"
+                                bind-value="_speed"
+                                disabled="_isGenerating">
+                        </div>
+                        <div class="col-md-6 mb-3">
+                            <label for="pitchSlider" class="form-label">音调: @_pitch</label>
+                            <input 
+                                type="range" 
+                                id="pitchSlider"
+                                min="-10" 
+                                max="10" 
+                                step="1"
+                                class="form-range"
+                                bind-value="_pitch"
+                                disabled="_isGenerating">
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 生成按钮 -->
+            <div class="d-grid gap-2 mb-4">
+                <button 
+                    class="btn btn-success btn-lg"
+                    @onclick="GenerateVocal"
+                    disabled="_isGenerating || string.IsNullOrWhiteSpace(_textInput)">
+                    @if (_isGenerating) {
+                        <>
+                            <span class="spinner-border spinner-border-sm mr-2" role="status" aria-hidden="true"></span>
+                            正在生成...
+                        </>
+                    } else {
+                        @:生成人声
+                    }
+                </button>
+            </div>
+            
+            <!-- 生成状态和消息 -->
+            @if (!string.IsNullOrEmpty(_statusMessage)) {
+                <div class="alert @_statusClass mb-4">
+                    @_statusMessage
+                </div>
+            }
+            
+            <!-- 音频播放区域 -->
+            @if (!string.IsNullOrEmpty(_generatedAudioUrl)) {
+                <div class="card mb-4">
+                    <div class="card-header bg-info text-white">
+                        <h5 class="mb-0">生成结果</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <h6>生成的人声</h6>
+                            <div class="d-flex align-items-center gap-2">
+                                <button 
+                                    class="btn btn-primary"
+                                    @onclick="() => PlayPauseAudio(_generatedAudioUrl)"
+                                    disabled="_isGenerating">
+                                    @(_isPlaying ? "暂停" : "播放")
+                                </button>
+                                <button 
+                                    class="btn btn-secondary"
+                                    @onclick="StopAudio"
+                                    disabled="!_isPlaying || _isGenerating">
+                                    停止
+                                </button>
+                                <button 
+                                    class="btn btn-outline-primary"
+                                    @onclick="SaveVocalAudio"
+                                    disabled="_isGenerating">
+                                    保存人声
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <!-- 进度条 -->
+                        @if (_isPlaying) {
+                            <div class="progress mb-3" style="height: 8px;">
+                                <div 
+                                    class="progress-bar bg-primary" 
+                                    role="progressbar"
+                                    style="width: @(_playbackProgress)%"
+                                    aria-valuenow="@_playbackProgress"
+                                    aria-valuemin="0"
+                                    aria-valuemax="100">
+                                </div>
+                            </div>
+                        }
+                        
+                        <!-- 如果有旋律音频 -->
+                        @if (!string.IsNullOrEmpty(_midiAudioUrl)) {
+                            <div class="mt-4">
+                                <h6>带旋律的人声</h6>
+                                <div class="d-flex align-items-center gap-2">
+                                    <button 
+                                        class="btn btn-success"
+                                        @onclick="() => PlayVocalWithMelody(_generatedAudioUrl, _midiAudioUrl)"
+                                        disabled="_isGenerating">
+                                        播放人声+旋律
+                                    </button>
+                                    <button 
+                                        class="btn btn-outline-success"
+                                        @onclick="SaveMelodyAudio"
+                                        disabled="_isGenerating">
+                                        保存旋律
+                                    </button>
+                                </div>
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    // 必要的类字段定义
+    private bool _isPlaying;
+    private double _playbackProgress;
+    private object? _currentPlaybackControl;
+    private string _generatedAudioUrl = string.Empty;
+    private string _midiAudioUrl = string.Empty;
+    
+    // 新增字段
+    private string _textInput = string.Empty;
+    private string _selectedModel = "standard";
+    private string _selectedVoice = "neutral";
+    private double _speed = 1.0;
+    private int _pitch = 0;
+    private bool _isGenerating = false;
+    private string _statusMessage = string.Empty;
+    private string _statusClass = string.Empty;
+    
+    // 播放带旋律的人声
+    private async Task PlayVocalWithMelody(string vocalAudioUrl, string melodyAudioUrl)
+    {
+        try
+        {
+            // 停止当前正在播放的音频
+            StopCurrentPlayback();
+    
+            Logger.LogInformation("开始播放带旋律的人声");
+            _isPlaying = true;
+            _playbackProgress = 0;
+            _currentPlaybackControl = null;
+            _generatedAudioUrl = vocalAudioUrl;
+            _midiAudioUrl = melodyAudioUrl;
+            
+            // 调用JavaScript进行音频播放
+            await JSRuntime.InvokeVoidAsync("AudioPlayer.playAudioByUrl", vocalAudioUrl);
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "播放音频时出错");
+            await JSRuntime.InvokeVoidAsync("alert", $"播放音频失败: {ex.Message}");
+            _isPlaying = false;
+            _playbackProgress = 0;
+        }
+    }
+    
+    // 播放或暂停音频
+    private async Task PlayPauseAudio(string audioUrl)
+    {
+        try
+        {
+            if (_isPlaying)
+            {
+                // 暂停逻辑
+                await JSRuntime.InvokeVoidAsync("AudioPlayer.pauseAudio");
+                _isPlaying = false;
+            }
+            else
+            {
+                // 播放逻辑
+                StopCurrentPlayback();
+                _isPlaying = true;
+                _playbackProgress = 0;
+                await JSRuntime.InvokeVoidAsync("AudioPlayer.playAudioByUrl", audioUrl);
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "播放/暂停音频时出错");
+            await JSRuntime.InvokeVoidAsync("alert", $"操作失败: {ex.Message}");
+            _isPlaying = false;
+        }
+    }
+    
+    // 停止音频
+    private async Task StopAudio()
+    {
+        try
+        {
+            StopCurrentPlayback();
+            await JSRuntime.InvokeVoidAsync("AudioPlayer.stopAudio");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "停止音频时出错");
+        }
+    }
+    
+    // 停止当前播放
+    private void StopCurrentPlayback()
+    {
+        try
+        {
+            if (_currentPlaybackControl != null)
+            {
+                // 停止播放逻辑
+                _isPlaying = false;
+                _playbackProgress = 0;
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "停止播放失败");
+        }
+    }
+    
+    // 保存音频文件
+    private async Task SaveAudioFile(string audioUrl, string fileName)
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("saveFile", audioUrl, fileName, "audio/wav");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "保存音频文件失败");
+            await JSRuntime.InvokeVoidAsync("alert", $"保存文件失败: {ex.Message}");
+        }
+    }
+    
+    // 生成人声
+    private async Task GenerateVocal()
+    {
+        if (string.IsNullOrWhiteSpace(_textInput))
+        {
+            _statusMessage = "请输入文本内容"; 
+            _statusClass = "alert-warning";
+            return;
+        }
+        
+        try
+        {
+            _isGenerating = true;
+            _statusMessage = "正在生成人声，请稍候...";
+            _statusClass = "alert-info";
+            
+            // 这里应该调用后端API生成人声
+            // 为了演示，我们使用模拟数据
+            Logger.LogInformation("开始生成人声，参数: 模型={0}, 声音={1}, 语速={2}, 音调={3}", 
+                _selectedModel, _selectedVoice, _speed, _pitch);
+            
+            // 模拟API调用延迟
+            await Task.Delay(3000);
+            
+            // 模拟返回的音频URL
+            _generatedAudioUrl = "/sample-vocal.wav";
+            _midiAudioUrl = "/sample-melody.wav";
+            
+            _statusMessage = "人声生成成功！";
+            _statusClass = "alert-success";
+            Logger.LogInformation("人声生成成功");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "生成人声时出错");
+            _statusMessage = $"生成失败: {ex.Message}";
+            _statusClass = "alert-danger";
+        }
+        finally
+        {
+            _isGenerating = false;
+        }
+    }
+    
+    // 保存人声音频
+    private async Task SaveVocalAudio()
+    {
+        string fileName = "vocal_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".wav";
+        await SaveAudioFile(_generatedAudioUrl, fileName);
+    }
+    
+    // 保存旋律音频
+    private async Task SaveMelodyAudio()
+    {
+        string fileName = "melody_" + DateTime.Now.ToString("yyyyMMdd_HHmmss") + ".wav";
+        await SaveAudioFile(_midiAudioUrl, fileName);
+    }
+}

@@ -1,0 +1,139 @@
+@page "/accompaniment-generator"
+@using AIMusicCreator.Web.Services
+@using AIMusicCreator.Web.Shared
+@inject ApiService Api
+@inject NavigationManager Nav
+@rendermode InteractiveServer
+
+<div class="container mt-4">
+    <h2>伴奏生成</h2>
+    <hr />
+
+    <div class="row mb-4">
+        <div class="col-md-6">
+            <div class="mb-3">
+                <label class="form-label">音乐风格</label>
+                <select @bind="Style" class="form-select">
+                    <option value="pop">流行</option>
+                    <option value="rock">摇滚</option>
+                    <option value="jazz">爵士</option>
+                    <option value="classical">古典</option>
+                    <option value="electronic">电子</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">和弦进行</label>
+                <select @bind="ChordProgression" class="form-select">
+                    <option value="I-IV-V">I-IV-V (经典流行)</option>
+                    <option value="I-V-vi-IV">I-V-vi-IV (流行热曲)</option>
+                    <option value="vi-IV-I-V">vi-IV-I-V (抒情)</option>
+                    <option value="I-vi-IV-V">I-vi-IV-V (卡农进行)</option>
+                    <option value="ii-V-I">ii-V-I (爵士进行)</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">速度 (BPM)</label>
+                <input type="range" @bind="Bpm" min="60" max="180" class="form-range" />
+                <div class="text-center">@Bpm BPM</div>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">乐器配置</label>
+                <select @bind="Instrumentation" class="form-select">
+                    <option value="full">完整乐队 (鼓、贝斯、吉他、键盘)</option>
+                    <option value="rhythm">节奏部分 (鼓、贝斯)</option>
+                    <option value="acoustic">原声配置</option>
+                    <option value="electronic">电子配置</option>
+                </select>
+            </div>
+
+            <div class="mb-3">
+                <label class="form-label">是否包含鼓点</label>
+                <input type="checkbox" @bind="IncludeDrums" class="form-check-input" />
+            </div>
+
+            <button @onclick="GenerateAccompaniment" class="btn btn-primary w-100" disabled="@isGenerating">
+                @(isGenerating ? "生成中..." : "生成伴奏")
+            </button>
+
+            @if (generatedAudioData.Length > 0)
+            {
+                <div class="d-grid gap-2 mt-2">
+                    <button @onclick="NavigateToMixer" class="btn btn-secondary">
+                        进入混音器
+                    </button>
+                </div>
+            }
+        </div>
+
+        <div class="col-md-6">
+            @if (generatedAudioData.Length > 0)
+            {
+                <AudioPlay_Test FileContent="@generatedAudioData" ContentType="@contentType" localFileName="生成的伴奏"></AudioPlay_Test>
+                <div class="d-grid gap-2 d-md-flex justify-content-md-end mt-2">
+                    <button @onclick="SaveAccompaniment" class="btn btn-success">保存伴奏</button>
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-info h-100 d-flex align-items-center justify-content-center">
+                    生成的伴奏将显示在这里
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    private string Style { get; set; } = "pop";
+    private string ChordProgression { get; set; } = "I-V-vi-IV";
+    private int Bpm { get; set; } = 120;
+    private string Instrumentation { get; set; } = "full";
+    private bool IncludeDrums { get; set; } = true;
+    private bool isGenerating { get; set; }
+    private byte[] generatedAudioData { get; set; } = [];
+    private string contentType { get; set; } = "audio/wav";
+    [Inject] private IJSRuntime JSRuntime { get; set; } = null!;
+
+    private async Task GenerateAccompaniment()
+    {
+        isGenerating = true;
+        try
+        {
+            // 调用API生成伴奏
+            generatedAudioData = await Api.GenerateAccompaniment(
+                Style, 
+                ChordProgression, 
+                Bpm, 
+                Instrumentation, 
+                IncludeDrums);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"生成失败: {ex.Message}");
+        }
+        finally
+        {
+            isGenerating = false;
+        }
+    }
+
+    private async Task SaveAccompaniment()
+    {
+        if (generatedAudioData != null && generatedAudioData.Length > 0)
+        {
+            await Api.SaveFile(
+                generatedAudioData, 
+                $"accompaniment_{Style}_{ChordProgression}_{Bpm}.wav", 
+                "audio/wav");
+        }
+    }
+
+    private void NavigateToMixer()
+    {
+        // 导航到混音器页面
+        Nav.NavigateTo("/multi-track-mixer");
+    }
+}

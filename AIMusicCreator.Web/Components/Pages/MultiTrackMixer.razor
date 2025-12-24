@@ -1,0 +1,262 @@
+﻿@page "/multi-track-mixer"
+@using AIMusicCreator.Entity
+@using AIMusicCreator.Web.Services
+@using AIMusicCreator.Web.Shared
+@inject ApiService Api
+@inject IJSRuntime JsRuntime
+@inject NavigationManager NavigationManager
+
+<div class="container mt-4">
+    <h2>多轨混音工具</h2>
+    <hr />
+
+    <!-- 轨道控制区 -->
+    <div class="mb-4 d-flex gap-2">
+        <InputFile OnChange="AddTrack" accept="audio/wav,audio/mp3" class="form-control-sm" />
+        <button @onclick="PlayAllTracks" class="btn btn-primary btn-sm">播放全部</button>
+        <button @onclick="PauseAllTracks" class="btn btn-secondary btn-sm">暂停全部</button>
+        <button @onclick="MixAllTracks" class="btn btn-success btn-sm ms-auto">导出混音结果</button>
+    </div>
+
+    <!-- 多轨道列表 -->
+    <div class="track-list">
+        @foreach (var (track, index) in tracks.Select((t, i) => (t, i)))
+        {
+            <div class="card mb-3">
+                <div class="card-header d-flex justify-content-between align-items-center">
+                    <div class="d-flex align-items-center gap-2">
+                        <!-- 静音/独奏按钮 -->
+                        <button @onclick="() => ToggleMute(index)" class="btn btn-sm @(track.IsMuted ? "btn-danger" : "btn-outline-secondary")">
+                            @(track.IsMuted ? "🔇" : "🔊")
+                        </button>
+                        <button @onclick="() => ToggleSolo(index)" class="btn btn-sm @(track.IsSolo ? "btn-warning" : "btn-outline-secondary")">
+                            @(track.IsSolo ? "🎵" : "Solo")
+                        </button>
+                        <span>轨道 @(index + 1)：@track.FileName</span>
+                    </div>
+                    <button @onclick="() => RemoveTrack(index)" class="btn btn-sm btn-danger">×</button>
+                </div>
+                <div class="card-body">
+                    <!-- 音频播放器 -->
+                    <AudioPlayer AudioUrl="@track.AudioUrl" FileName="@track.FileName" />
+
+                    <!-- 音量控制 -->
+                    <div class="mt-2">
+                        <label class="form-label">音量：@track.Volume %</label>
+                        <input type="range" 
+                               @bind="track.Volume" 
+                               min="0" 
+                               max="200" 
+                               step="1" 
+                               class="form-range"
+                               @oninput="() => UpdateTrackVolume(index)" />
+                    </div>
+
+                    <!-- 延迟播放（轨道对齐） -->
+                    <div class="mt-2">
+                        <label class="form-label">延迟播放：@track.DelaySeconds 秒</label>
+                        <input type="number" 
+                               @bind="track.DelaySeconds" 
+                               min="0" 
+                               step="0.1" 
+                               class="form-control form-control-sm w-25" />
+                    </div>
+                </div>
+            </div>
+        }
+
+        @if (!tracks.Any())
+        {
+            <div class="alert alert-info text-center py-5">
+                暂无轨道，请上传音频文件添加轨道（支持人声、伴奏、音效等）
+            </div>
+        }
+    </div>
+
+    <!-- 混音结果 -->
+    @if (!string.IsNullOrEmpty(mixResultUrl))
+    {
+        <div class="card mt-4">
+            <div class="card-header">
+                <h5>混音结果</h5>
+            </div>
+            <div class="card-body">
+                <AudioPlayer AudioUrl="@mixResultUrl" FileName="最终混音音频" />
+                <button @onclick="SaveMixResult" class="btn btn-success mt-2">保存混音文件</button>
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    // 轨道模型
+    private class AudioTrack
+    {
+        public string FileName { get; set; } = string.Empty;
+        public string AudioUrl { get; set; } = string.Empty;
+        public byte[] AudioData { get; set; } = [];
+        public int Volume { get; set; } = 100; // 音量（0-200%）
+        public double DelaySeconds { get; set; } = 0; // 延迟播放时间
+        public bool IsMuted { get; set; } = false; // 是否静音
+        public bool IsSolo { get; set; } = false; // 是否独奏
+        public ElementReference AudioElementRef { get; set; } // 音频元素引用
+    }
+
+    private List<AudioTrack> tracks = new();
+    private string mixResultUrl = string.Empty;
+    private byte[] mixResultData = [];
+
+    // 添加轨道
+    private async Task AddTrack(InputFileChangeEventArgs e)
+    {
+        if (e.FileCount == 0) return;
+        var file = e.File;
+        var safeFileName = SanitizeFileName(file.Name);
+
+        // 读取音频数据
+        using var stream = file.OpenReadStream();
+        var data = new byte[stream.Length];
+        await stream.ReadAsync(data.AsMemory(0, (int)stream.Length));
+
+        // 创建轨道
+        tracks.Add(new AudioTrack
+        {
+            FileName = safeFileName,
+            AudioUrl = GetAudioUrl(data, file.ContentType),
+            AudioData = data
+        });
+    }
+
+    // 移除轨道
+    private void RemoveTrack(int index)
+    {
+        tracks.RemoveAt(index);
+    }
+
+    // 切换静音
+    private void ToggleMute(int index)
+    {
+        tracks[index].IsMuted = !tracks[index].IsMuted;
+        UpdateTrackVolume(index).ConfigureAwait(false).GetAwaiter(); // 同步音量状态
+    }
+
+    // 切换独奏（仅当前轨道播放，其他静音）
+    private void ToggleSolo(int index)
+    {
+        var isSolo = tracks[index].IsSolo;
+        // 取消所有独奏
+        tracks.ForEach(t => t.IsSolo = false);
+        // 设置当前轨道独奏状态
+        tracks[index].IsSolo = !isSolo;
+
+        // 同步其他轨道静音状态
+        foreach (var (track, i) in tracks.Select((t, i) => (t, i)))
+        {
+            if (tracks[index].IsSolo && i != index)
+            {
+                track.IsMuted = true; // 其他轨道静音
+            }
+            else if (!tracks[index].IsSolo && track.IsMuted)
+            {
+                track.IsMuted = false; // 恢复非静音轨道
+            }
+        }
+    }
+
+    
+    /// <summary>
+    /// /更新轨道音量（通过JS操作音频元素）
+    /// </summary>
+    /// <param name="index"></param>
+    /// <returns></returns>
+    private async Task UpdateTrackVolume(int index)
+    {
+        var track = tracks[index];
+        var volume = track.IsMuted ? 0 : track.Volume / 100.0; // 转换为0-2范围
+        await JsRuntime.InvokeVoidAsync("setAudioVolume", track.AudioElementRef, volume);
+    }
+
+    // 播放全部轨道（考虑延迟时间）
+    private async Task PlayAllTracks()
+    {
+        foreach (var (track, index) in tracks.Select((t, i) => (t, i)))
+        {
+            if (!track.IsMuted)
+            {
+                // 延迟播放（如果设置了延迟时间）
+                if (track.DelaySeconds > 0)
+                {
+                    _ = Task.Delay((int)(track.DelaySeconds * 1000)).ContinueWith(async _ =>
+                    {
+                        await JsRuntime.InvokeVoidAsync("playAudio", track.AudioElementRef);
+                    });
+                }
+                else
+                {
+                    await JsRuntime.InvokeVoidAsync("playAudio", track.AudioElementRef);
+                }
+            }
+        }
+    }
+
+    // 暂停全部轨道
+    private async Task PauseAllTracks()
+    {
+        foreach (var track in tracks)
+        {
+            await JsRuntime.InvokeVoidAsync("pauseAudio", track.AudioElementRef);
+        }
+    }
+
+    // 导出混音结果（调用后端API）
+    private async Task MixAllTracks()
+    {
+        if (!tracks.Any())
+        {
+            await JsRuntime.InvokeVoidAsync("alert", "请至少添加1个轨道");
+            return;
+        }
+
+        try
+        {
+            // 收集轨道数据（包含音量、延迟参数）
+            var mixRequest = tracks.Select(t => new MixTrackRequest
+            {
+                AudioData = Convert.ToBase64String(t.AudioData),
+                Volume = t.Volume / 100.0, // 转换为0-2范围
+                DelaySeconds = t.DelaySeconds
+            }).ToList();
+
+            // 调用后端混音API
+            mixResultData = await Api.MixAudioTracks(mixRequest);
+            mixResultUrl = GetAudioUrl(mixResultData, "audio/wav");
+        }
+        catch (Exception ex)
+        {
+            await JsRuntime.InvokeVoidAsync("alert", $"混音失败: {ex.Message}");
+        }
+    }
+
+    // 保存混音结果
+    private async Task SaveMixResult()
+    {
+        if (mixResultData != null)
+        {
+            await Api.SaveFile(mixResultData, "mixed_audio.wav", "audio/wav");
+        }
+    }
+
+    // 辅助方法：生成音频URL
+    private string GetAudioUrl(byte[] data, string mimeType)
+    {
+        return $"data:{mimeType};base64,{Convert.ToBase64String(data)}";
+    }
+
+    // 辅助方法：清理文件名
+    private string SanitizeFileName(string fileName)
+    {
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var sanitized = new string(fileName.Where(c => !invalidChars.Contains(c)).ToArray());
+        return sanitized.Length > 30 ? sanitized[..30] + Path.GetExtension(fileName) : sanitized;
+    }
+}

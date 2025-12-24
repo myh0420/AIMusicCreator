@@ -1,0 +1,684 @@
+﻿@page "/test-audio"
+@rendermode InteractiveServer
+@inject IJSRuntime JSRuntime
+@* @using Microsoft.AspNetCore.Components.Forms *@
+@implements IAsyncDisposable
+
+<h3>音频播放测试 - 完整修复版本</h3>
+
+<div class="mb-3">
+    <button @onclick="PlayOnline1" class="btn btn-primary me-2">在线MP3</button>
+    <button @onclick="PlayOnline2" class="btn btn-secondary me-2">在线WAV</button>
+    <button @onclick="ToggleFileInput" class="btn btn-warning me-2">
+        @(showFileInput ? "隐藏文件选择" : "本地文件")
+    </button>
+    <button @onclick="ClearAll" class="btn btn-outline-danger">清除所有</button>
+</div>
+
+@if (showFileInput)
+{
+    <div class="mb-3 p-3 border rounded bg-light">
+        <label class="form-label fw-bold">选择本地音频文件:</label>
+        <InputFile type="file" OnChange="OnFileSelected" accept=".mp3,.wav,.ogg,.m4a,.aac" class="form-control" />
+        <small class="form-text text-muted">支持 MP3, WAV, OGG, M4A, AAC 格式，最大 10MB</small>
+
+        @if (selectedFile != null)
+        {
+            <div class="mt-2">
+                <span class="badge bg-info">已选择: @selectedFile.Name (@GetFileSize(selectedFile.Size))</span>
+                <button @onclick="PlayLocalFile" class="btn btn-sm btn-success ms-2" disabled="@isLoading">
+                    @(isLoading ? "加载中..." : "播放")
+                </button>
+                <button @onclick="ClearSelectedFile" class="btn btn-sm btn-outline-secondary ms-1">清除</button>
+            </div>
+        }
+    </div>
+}
+
+<!-- 状态信息 -->
+@if (isLoading)
+{
+    <div class="alert alert-info">
+        <div class="spinner-border spinner-border-sm me-2" role="status"></div>
+        正在加载音频文件...
+    </div>
+}
+
+<!-- 在线音频播放器 -->
+@if (!string.IsNullOrEmpty(onlineAudioUrl))
+{
+    <div class="mb-3 p-3 border rounded bg-success bg-opacity-10">
+        <h6>🎵 在线音频播放</h6>
+        <audio controls src="@onlineAudioUrl" style="width: 100%">
+            您的浏览器不支持音频播放
+        </audio>
+        <div class="mt-2">
+            <small class="text-success">✓ 在线音频已加载</small>
+            <button @onclick="ClearOnlineAudio" class="btn btn-sm btn-outline-secondary ms-2">关闭</button>
+        </div>
+    </div>
+}
+
+<!-- 本地文件播放器 -->
+@* @if (!string.IsNullOrEmpty(localAudioUrl))
+{
+    <div class="mb-3 p-3 border rounded bg-primary bg-opacity-10">
+        <h6>📁 本地文件播放: @localFileName</h6>
+        <audio @ref="audioElement"
+               controls
+               style="width: 100%"
+               @oncanplay="OnLocalAudioCanPlay"
+               @onloadedmetadata="OnLocalAudioMetadataLoaded"
+               @onerror="OnLocalAudioError">
+            您的浏览器不支持音频播放
+        </audio>
+        <div class="mt-2">
+            <small class="text-success">✓ 本地文件已加载</small>
+            @if (audioDuration > 0)
+            {
+                <span class="badge bg-info ms-2">时长: @TimeSpan.FromSeconds(audioDuration).ToString(@"mm\:ss")</span>
+            }
+            <span class="badge bg-secondary ms-2">大小: @GetFileSize(selectedFile?.Size ?? 0)</span>
+            <button @onclick="ClearLocalAudio" class="btn btn-sm btn-outline-secondary ms-2">关闭</button>
+        </div>
+    </div>
+} *@
+<!-- 本地文件播放器 -->
+@if (!string.IsNullOrEmpty(localAudioUrl))
+{
+    <div class="mb-3 p-3 border rounded bg-primary bg-opacity-10">
+        <h6>📁 本地文件播放: @localFileName</h6>
+        <audio @ref="audioElement"
+               controls
+               style="width: 100%"
+               src="@localAudioUrl"
+               @oncanplay="OnLocalAudioCanPlay"
+               @onloadedmetadata="OnLocalAudioMetadataLoaded"
+               @onloadstart="OnLocalAudioLoadStart"
+               @onerror="OnLocalAudioError"
+               @onstalled="OnLocalAudioStalled"
+               @onsuspend="OnLocalAudioSuspend">
+            您的浏览器不支持音频播放
+        </audio>
+        <div class="mt-2">
+            <small class="text-success">✓ 本地文件已加载</small>
+            @if (audioDuration > 0)
+            {
+                <span class="badge bg-info ms-2">时长: @TimeSpan.FromSeconds(audioDuration).ToString(@"mm\:ss")</span>
+            }
+            <span class="badge bg-secondary ms-2">大小: @GetFileSize(selectedFile?.Size ?? 0)</span>
+            <button @onclick="ClearLocalAudio" class="btn btn-sm btn-outline-secondary ms-2">关闭</button>
+        </div>
+        <div class="mt-1">
+            <small class="text-muted">音频状态: @audioStatus</small>
+        </div>
+    </div>
+}
+@if (string.IsNullOrEmpty(onlineAudioUrl) && string.IsNullOrEmpty(localAudioUrl) && !isLoading)
+{
+    <div class="alert alert-info">
+        <h6>🎧 请选择音频源:</h6>
+        <ul class="mb-0">
+            <li>点击"在线MP3"或"在线WAV"播放预设音频</li>
+            <li>点击"本地文件"选择并播放本地音频文件</li>
+        </ul>
+    </div>
+}
+
+@if (!string.IsNullOrEmpty(errorMessage))
+{
+    <div class="alert alert-danger">
+        <strong>错误:</strong> @errorMessage
+        <button @onclick="ClearError" class="btn btn-sm btn-outline-danger float-end">×</button>
+    </div>
+}
+@if (!string.IsNullOrEmpty(localAudioUrl))
+{
+    <div class="mt-2">
+        <button @onclick="CheckAudioState" class="btn btn-sm btn-outline-info">检查音频状态</button>
+        <button @onclick="ReloadAudio" class="btn btn-sm btn-outline-warning ms-1">重新加载</button>
+    </div>
+}
+@if (!string.IsNullOrEmpty(debugInfo))
+{
+    <div class="mt-3 p-2 border rounded bg-light">
+        <small class="text-muted">调试信息: @debugInfo</small>
+    </div>
+}
+
+@code {
+    private ElementReference audioElement;
+    private string? onlineAudioUrl;
+    private string? localAudioUrl;
+    private string? localFileName;
+    private string? errorMessage;
+    private string? debugInfo;
+    private bool showFileInput = false;
+    private bool isLoading = false;
+    private IBrowserFile? selectedFile;
+    private double audioDuration = 0;
+
+    private string audioStatus = "未加载";
+    // 可靠的测试音频URL
+    private readonly string[] testAudioUrls = new[]
+    {
+        "https://assets.mixkit.co/active_storage/sfx/100/100-preview.mp3", // 短提示音
+        "https://www2.cs.uic.edu/~i101/SoundFiles/BabyElephantWalk60.wav", // 大象漫步
+        "https://assets.mixkit.co/active_storage/sfx/245/245-preview.mp3", // 钢琴片段
+    };
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await LoadJavaScriptHelpers();
+        }
+    }
+
+    private async Task LoadJavaScriptHelpers()
+    {
+        try
+        {
+            // 检查JavaScript函数是否已加载
+            var isLoaded = await JSRuntime.InvokeAsync<bool>("eval", "typeof createAudioObjectURL !== 'undefined'");
+            if (!isLoaded)
+            {
+                debugInfo = "JavaScript助手函数未加载，请确保audioHelper.js已引入";
+            }
+            else
+            {
+                debugInfo = "JavaScript助手函数已就绪";
+            }
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"JavaScript加载检查失败: {ex.Message}";
+        }
+        StateHasChanged();
+    }
+
+    private void PlayOnline1()
+    {
+        ClearAll();
+        onlineAudioUrl = testAudioUrls[0];
+        debugInfo = "加载在线MP3音频";
+        StateHasChanged();
+    }
+
+    private void PlayOnline2()
+    {
+        ClearAll();
+        onlineAudioUrl = testAudioUrls[1];
+        debugInfo = "加载在线WAV音频";
+        StateHasChanged();
+    }
+
+    private void ToggleFileInput()
+    {
+        showFileInput = !showFileInput;
+        errorMessage = null;
+        StateHasChanged();
+    }
+
+    private void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        // 文件大小验证 (10MB限制)
+        if (file.Size > 10 * 1024 * 1024)
+        {
+            errorMessage = $"文件太大: {GetFileSize(file.Size)}。请选择小于10MB的文件。";
+            StateHasChanged();
+            return;
+        }
+
+        // 文件类型验证
+        var extension = System.IO.Path.GetExtension(file.Name).ToLower();
+        var allowedExtensions = new[] { ".mp3", ".wav", ".ogg", ".m4a", ".aac" };
+
+        if (!allowedExtensions.Contains(extension))
+        {
+            errorMessage = $"不支持的格式: {extension}。请选择MP3、WAV、OGG、M4A或AAC文件。";
+            StateHasChanged();
+            return;
+        }
+
+        selectedFile = file;
+        errorMessage = null;
+        debugInfo = $"已选择文件: {file.Name}";
+        StateHasChanged();
+    }
+
+    private void ClearSelectedFile()
+    {
+        selectedFile = null;
+        StateHasChanged();
+    }
+
+    private void ClearOnlineAudio()
+    {
+        onlineAudioUrl = null;
+        StateHasChanged();
+    }
+
+    private void ClearLocalAudio()
+    {
+        if (!string.IsNullOrEmpty(localAudioUrl))
+        {
+            _ = JSRuntime.InvokeVoidAsync("URL.revokeObjectURL", localAudioUrl);
+        }
+        localAudioUrl = null;
+        localFileName = null;
+        audioDuration = 0;
+        StateHasChanged();
+    }
+
+    private void ClearError()
+    {
+        errorMessage = null;
+        StateHasChanged();
+    }
+
+    private async Task OnLocalAudioLoadStart()
+    {
+        await Task.CompletedTask;
+        audioStatus = "开始加载";
+        debugInfo = "音频开始加载";
+        StateHasChanged();
+    }
+
+    private async Task OnLocalAudioMetadataLoaded()
+    {
+        try
+        {
+            audioDuration = await JSRuntime.InvokeAsync<double>("getAudioDuration", audioElement);
+            audioStatus = $"元数据加载完成 ({audioDuration:F2}秒)";
+            debugInfo = $"音频元数据加载完成，时长: {audioDuration}秒";
+            StateHasChanged();
+
+            // 尝试自动播放（可能需要用户交互）
+            await TryAutoPlay();
+        }
+        catch (Exception ex)
+        {
+            audioStatus = "元数据加载错误";
+            debugInfo = $"元数据加载回调失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    // private async Task OnLocalAudioMetadataLoaded()
+    // {
+    //     try
+    //     {
+    //         audioDuration = await JSRuntime.InvokeAsync<double>("getAudioDuration", audioElement);
+    //         debugInfo = $"音频元数据加载完成，时长: {audioDuration}秒";
+    //         StateHasChanged();
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         debugInfo = $"元数据加载回调失败: {ex.Message}";
+    //     }
+    // }
+    private async Task OnLocalAudioCanPlay()
+    {
+        try
+        {
+            await Task.CompletedTask;
+            audioStatus = "可以播放";
+            debugInfo = "音频可以播放";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            audioStatus = "可以播放但发生错误";
+            debugInfo = $"可以播放回调失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    // private async Task OnLocalAudioCanPlay()
+    // {
+    //     try
+    //     {
+    //         获取音频时长
+    //         audioDuration = await JSRuntime.InvokeAsync<double>("getAudioDuration", audioElement);
+    //         debugInfo = $"音频可以播放，时长: {audioDuration}秒";
+    //         StateHasChanged();
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         debugInfo = $"获取音频时长失败: {ex.Message}";
+    //     }
+    // }
+
+    private async Task OnLocalAudioStalled()
+    {
+        await Task.CompletedTask;
+        audioStatus = "缓冲中...";
+        debugInfo = "音频缓冲中";
+        StateHasChanged();
+    }
+
+    private async Task OnLocalAudioSuspend()
+    {
+        await Task.CompletedTask;
+        audioStatus = "加载暂停";
+        debugInfo = "音频加载暂停";
+        StateHasChanged();
+    }
+
+    private async Task OnLocalAudioError()
+    {
+        try
+        {
+            var errorInfo = await JSRuntime.InvokeAsync<string>("getAudioError", audioElement);
+            audioStatus = $"错误: {errorInfo}";
+            errorMessage = $"音频播放错误: {errorInfo}";
+            debugInfo = $"音频错误: {errorInfo}";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            audioStatus = "未知错误";
+            errorMessage = $"音频播放发生错误";
+            debugInfo = $"错误处理失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+    // private async Task OnLocalAudioError()
+    // {
+    //     try
+    //     {
+    //         var errorInfo = await JSRuntime.InvokeAsync<string>("getAudioError", audioElement);
+    //         errorMessage = $"音频播放错误: {errorInfo}";
+    //         debugInfo = $"音频错误: {errorInfo}";
+    //         StateHasChanged();
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         errorMessage = $"音频播放发生错误";
+    //         debugInfo = $"错误处理失败: {ex.Message}";
+    //     }
+    // }
+    private async Task TryAutoPlay()
+    {
+        try
+        {
+            // 尝试播放（可能需要用户首次交互）
+            await JSRuntime.InvokeVoidAsync("tryPlayAudio", audioElement);
+        }
+        catch (Exception)
+        {
+            // 自动播放被阻止是正常的，需要用户交互
+            debugInfo = "自动播放被阻止，需要用户点击播放按钮";
+        }
+    }
+    private void ClearAll()
+    {
+        ClearOnlineAudio();
+        ClearLocalAudio();
+        ClearSelectedFile();
+        ClearError();
+        debugInfo = "已清除所有内容";
+        StateHasChanged();
+    }
+
+    // private async void PlayLocalFile()
+    // {
+    //     if (selectedFile == null) return;
+
+    //     try
+    //     {
+    //         isLoading = true;
+    //         errorMessage = null;
+    //         onlineAudioUrl = null;
+    //         localAudioUrl = null;
+    //         audioDuration = 0;
+    //         StateHasChanged();
+
+    //         给UI时间更新加载状态
+    //         await Task.Delay(10);
+
+    //         debugInfo = $"开始处理文件: {selectedFile.Name}";
+    //         StateHasChanged();
+
+    //         创建对象URL
+    //         var url = await CreateDirectObjectUrl(selectedFile);
+
+    //         if (!string.IsNullOrEmpty(url))
+    //         {
+    //             debugInfo = "对象URL创建成功，正在验证音频...";
+    //             StateHasChanged();
+
+    //             验证URL是否有效
+    //             var isValid = await JSRuntime.InvokeAsync<bool>("validateAudioURL", url);
+
+    //             if (isValid)
+    //             {
+    //                 localAudioUrl = url;
+    //                 localFileName = selectedFile.Name;
+    //                 debugInfo = "音频验证成功，可以播放";
+
+    //                 等待音频元素加载
+    //                 await Task.Delay(100);
+    //             }
+    //             else
+    //             {
+    //                 errorMessage = "音频文件验证失败，可能文件格式不受支持或已损坏";
+    //                 await JSRuntime.InvokeVoidAsync("URL.revokeObjectURL", url);
+    //                 debugInfo = "音频验证失败";
+    //             }
+    //         }
+    //         else
+    //         {
+    //             errorMessage = "无法创建音频URL，请尝试其他文件。";
+    //             debugInfo = "对象URL创建失败";
+    //         }
+    //     }
+    //     catch (Exception ex)
+    //     {
+    //         errorMessage = $"播放失败: {ex.Message}";
+    //         debugInfo = $"异常: {ex.Message}";
+    //     }
+    //     finally
+    //     {
+    //         isLoading = false;
+    //         StateHasChanged();
+    //     }
+    // }
+    private async void PlayLocalFile()
+    {
+        if (selectedFile == null) return;
+
+        try
+        {
+            isLoading = true;
+            errorMessage = null;
+            onlineAudioUrl = null;
+            localAudioUrl = null;
+            audioDuration = 0;
+            StateHasChanged();
+
+            // 给UI时间更新加载状态
+            await Task.Delay(10);
+
+            debugInfo = $"开始处理文件: {selectedFile.Name}";
+            StateHasChanged();
+
+            // 创建对象URL
+            var url = await CreateDirectObjectUrl(selectedFile);
+
+            if (!string.IsNullOrEmpty(url))
+            {
+                debugInfo = "对象URL创建成功，正在设置音频源...";
+                StateHasChanged();
+
+                // 直接设置localAudioUrl，让Blazor处理音频元素
+                localAudioUrl = url;
+                localFileName = selectedFile.Name;
+
+                // 等待下一次渲染完成
+                StateHasChanged();
+                await Task.Delay(100);
+
+                // 现在检查音频元素的状态
+                var duration = await JSRuntime.InvokeAsync<double>("getAudioDuration", audioElement);
+                if (duration > 0)
+                {
+                    audioDuration = duration;
+                    debugInfo = $"音频加载成功，时长: {duration}秒";
+                }
+                else
+                {
+                    debugInfo = "音频元素已设置，等待用户交互...";
+                }
+            }
+            else
+            {
+                errorMessage = "无法创建音频URL，请尝试其他文件。";
+                debugInfo = "对象URL创建失败";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"播放失败: {ex.Message}";
+            debugInfo = $"异常: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+    private async Task<string?> CreateDirectObjectUrl(IBrowserFile file)
+    {
+        try
+        {
+            var maxAllowedSize = 10 * 1024 * 1024; // 10MB
+            debugInfo = $"创建对象URL: {file.Name} ({GetFileSize(file.Size)})";
+            StateHasChanged();
+
+            using var fileStream = file.OpenReadStream(maxAllowedSize);
+            var streamRef = new DotNetStreamReference(fileStream);
+
+            // 调用JavaScript函数创建对象URL
+            return await JSRuntime.InvokeAsync<string>("createAudioObjectURL", streamRef, file.ContentType);
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"直接对象URL创建失败: {ex.Message}";
+            return await CreateAlternativeUrl(file);
+        }
+    }
+
+    private async Task<string?> CreateAlternativeUrl(IBrowserFile file)
+    {
+        const int maxAllowedSize = 5 * 1024 * 1024; // 5MB
+        const int bufferSize = 81920; // 80KB
+
+        try
+        {
+            debugInfo = "尝试备用方案 (Base64)...";
+            StateHasChanged();
+
+            // 首先检查文件大小
+            if (file.Size > maxAllowedSize)
+            {
+                debugInfo = $"文件过大: {GetFileSize(file.Size)}";
+                return null;
+            }
+
+            using var stream = file.OpenReadStream(maxAllowedSize);
+            using var memoryStream = new MemoryStream();
+
+            var buffer = new byte[bufferSize];
+            int bytesRead;
+
+            while ((bytesRead = await stream.ReadAsync(buffer)) > 0)
+            {
+                await memoryStream.WriteAsync(buffer.AsMemory(0, bytesRead));
+
+                // 检查是否超过限制
+                if (memoryStream.Length > maxAllowedSize)
+                {
+                    debugInfo = "读取过程中文件超过大小限制";
+                    return null;
+                }
+            }
+
+            var base64String = Convert.ToBase64String(memoryStream.ToArray());
+            var dataUrl = $"data:{file.ContentType};base64,{base64String}";
+
+            debugInfo = "Base64 URL创建成功";
+            return dataUrl;
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"备用方案失败: {ex.Message}";
+            return null;
+        }
+    }
+
+
+    private async Task CheckAudioState()
+    {
+        try
+        {
+            var state = await JSRuntime.InvokeAsync<object>("getAudioElementState", audioElement);
+            debugInfo = $"音频状态: {System.Text.Json.JsonSerializer.Serialize(state)}";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"检查音频状态失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task ReloadAudio()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("reloadAudio", audioElement);
+            debugInfo = "音频重新加载中...";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"重新加载失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private string GetFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        int order = 0;
+        double len = bytes;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        // 清理对象URL
+        if (!string.IsNullOrEmpty(localAudioUrl))
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("URL.revokeObjectURL", localAudioUrl);
+                debugInfo = "对象URL已清理";
+            }
+            catch (Exception ex)
+            {
+                debugInfo = $"清理对象URL时出错: {ex.Message}";
+            }
+        }
+    }
+}

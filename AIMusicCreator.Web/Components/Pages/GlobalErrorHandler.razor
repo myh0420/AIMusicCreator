@@ -1,0 +1,24 @@
+﻿@inject IJSRuntime JSRuntime
+@inject NavigationManager Navigation
+@inject ILogger<GlobalErrorHandler> Logger
+
+@code {
+    // [Inject] private ILogger<GlobalErrorHandler> Logger { get; set; }
+
+    protected override void OnInitialized()
+    {
+        // 可以在这里添加全局错误处理逻辑
+    }
+
+    public async Task HandleErrorAsync(Exception ex)
+    {
+        Logger.LogError(ex, "全局错误处理");
+
+        if (ex is ObjectDisposedException)
+        {
+            // 对于释放的对象异常，尝试重新加载页面
+            await JSRuntime.InvokeVoidAsync("console.warn", "Circuit disposed, reloading page");
+            Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+        }
+    }
+}

@@ -1,0 +1,714 @@
+@using AIMusicCreator.Web.Services
+@using Microsoft.JSInterop
+@using Microsoft.Extensions.Logging
+@inject IJSRuntime JSRuntime
+@inject ILogger<AudioPlayer> Logger
+@inject IAudioPlayerService AudioService
+@inject ConnectionStateService ConnectionState
+@inject NavigationManager Navigation
+@implements IAsyncDisposable
+
+<div class="audio-player card p-3 mb-3">
+    @if (isLoading)
+    {
+        <div class="text-center py-3">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">加载中...</span>
+            </div>
+            <p class="mt-2 text-muted">音频加载中...</p>
+        </div>
+    }
+    else if (showReconnectMessage || !ConnectionState.IsConnected)
+    {
+        <div class="alert alert-warning">
+            <p>❌ 连接已断开，音频功能不可用</p>
+            <p class="small text-muted">
+                断开时间: @ConnectionState.LastDisconnectedTime?.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")
+            </p>
+            <div class="mt-2">
+                <button @onclick="TryReconnect" class="btn btn-primary me-2" disabled="@isReconnecting">
+                    @if (isReconnecting)
+                    {
+                        <span class="spinner-border spinner-border-sm me-2" role="status"></span>
+                    }
+                    尝试重新连接
+                </button>
+                <button @onclick="RefreshPage" class="btn btn-outline-secondary">刷新页面</button>
+            </div>
+        </div>
+    }
+    else
+    {
+        <audio @ref="audioElement" class="w-100" controls >
+            <source src="@AudioUrl" type="@GetMimeType()" />
+            您的浏览器不支持音频播放
+        </audio>
+        @if (!string.IsNullOrEmpty(FileName))
+        {
+            <div class="text-muted mt-2 small">@FileName</div>
+        }
+    }
+</div>
+@if (ShowDebugInfo)
+{
+    <div class="alert alert-warning mt-2">
+        <small>音频URL: @(AudioUrl?.Substring(0, Math.Min(100, AudioUrl?.Length ?? 0)))...</small><br />
+        <small>MIME类型: @GetMimeType()</small><br />
+        <small>URL长度: @AudioUrl?.Length</small>
+    </div>
+}
+
+@code {
+    /// <summary>
+    /// 音频URL
+    /// </summary>
+    [Parameter] public string AudioUrl { get; set; } = string.Empty;
+    
+    /// <summary>
+    /// 音频文件名
+    /// </summary>  
+    [Parameter] public string FileName { get; set; } = "音频文件";
+    
+    /// <summary>
+    /// 是否显示调试信息
+    /// </summary>
+    [Parameter] public bool ShowDebugInfo { get; set; } = false;
+    
+    /// <summary>
+    /// 播放事件回调
+    /// </summary>
+    [Parameter]
+    public EventCallback OnPlay { get; set; }
+    
+    /// <summary>
+    /// 暂停事件回调
+    /// </summary>
+    [Parameter]
+    public EventCallback OnPause { get; set; }
+    
+    /// <summary>
+    /// 播放结束事件回调
+    /// </summary>
+    [Parameter]
+    public EventCallback OnEnded { get; set; }
+    
+    /// <summary>
+    /// 音频元素的引用
+    /// </summary>
+    private ElementReference audioElement;
+
+    // 暴露公共属性，供父组件访问（关键修复）
+    /// <summary>
+    /// 获取音频元素的引用，用于父组件操作
+    /// </summary>
+    public ElementReference AudioElementRef => audioElement;
+    
+    /// <summary>
+    /// 用于与JavaScript交互的DotNetObjectReference
+    /// </summary>
+    private DotNetObjectReference<AudioPlayer>? _dotNetHelper = null;
+    
+    /// <summary>
+    /// 组件是否已被释放
+    /// </summary>
+    private bool _disposed = false;
+    
+    /// <summary>
+    /// 是否正在重新连接
+    /// </summary>
+    private bool isReconnecting = false;
+    
+    /// <summary>
+    /// 是否显示重新连接消息
+    /// </summary>
+    private bool showReconnectMessage = false;
+    
+    /// <summary>
+    /// 是否正在加载音频
+    /// </summary>
+    private bool isLoading = false;
+    
+    /// <summary>
+    /// 根据音频 URL 确定 MIME 类型
+    /// </summary>
+    /// <returns>音频的 MIME 类型</returns>
+    private string GetMimeType()
+    {
+        if (string.IsNullOrEmpty(AudioUrl)) return "audio/mpeg";
+
+        if (AudioUrl.StartsWith("data:audio/wav")) return "audio/wav";
+        if (AudioUrl.StartsWith("data:audio/mp3")) return "audio/mpeg";
+        if (AudioUrl.StartsWith("data:audio/mpeg")) return "audio/mpeg";
+        if (AudioUrl.StartsWith("data:audio/flac")) return "audio/flac";
+        if (AudioUrl.EndsWith(".wav")) return "audio/wav";
+        if (AudioUrl.EndsWith(".mp3")) return "audio/mpeg";
+        if (AudioUrl.EndsWith(".flac")) return "audio/flac";
+
+        return "audio/mpeg"; // 默认类型
+    }
+    
+    /// <summary>
+    /// 当组件渲染完成后异步调用
+    /// </summary>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && !string.IsNullOrEmpty(AudioUrl))
+        {
+            _dotNetHelper = DotNetObjectReference.Create(this);
+            
+            // 初始连接检查
+            await ConnectionState.CheckConnectionAsync();
+            StateHasChanged();
+            
+            // 设置事件监听器
+            try
+            {
+                await AudioService.SetupAudioEventsAsync(audioElement, _dotNetHelper);
+                Logger.LogInformation("音频事件监听器设置成功");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError(ex, "设置音频事件监听器失败");
+            }
+            
+            await LoadAudioWithTimeout();
+        }
+    }
+    
+    /// <summary>
+    /// 当参数设置时异步调用
+    /// </summary>
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!_disposed && !string.IsNullOrEmpty(AudioUrl))
+        {
+            // 检查连接状态
+            if (!await ConnectionState.CheckConnectionAsync())
+            {
+                StateHasChanged();
+                return;
+            }
+            
+            await LoadAudioWithTimeout();
+        }
+    }
+    
+    /// <summary>
+    /// 加载音频文件，设置超时时间为30秒
+    /// </summary>
+    private async Task LoadAudioWithTimeout()
+    {
+        isLoading = true;
+        StateHasChanged();
+
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+
+            // 等待音频加载
+            await Task.Delay(100, cts.Token); // 给 UI 更新时间
+
+            if (await ConnectionState.CheckConnectionAsync())
+            {
+                // 检查音频是否可播放
+                try
+                {
+                    var duration = await AudioService.GetDurationAsync(audioElement);
+                    Logger.LogInformation($"音频加载完成，URL: {GetSafeUrlForLogging()}, 时长: {duration}秒");
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, $"获取音频时长失败，URL: {GetSafeUrlForLogging()}");
+                    // 显示错误消息给用户
+                    await ShowAudioError("音频加载失败，请尝试刷新页面");
+                }
+            }
+        }
+        catch (TimeoutException)
+        {
+            Logger.LogWarning("音频加载超时");
+            await ShowAudioError("音频加载超时，请检查网络连接");
+        }
+        catch (OperationCanceledException)
+        {
+            Logger.LogInformation("音频加载被取消");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, $"音频加载错误");
+            await ShowAudioError($"音频加载错误: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+    
+    /// <summary>
+    /// 尝试重新连接到服务器
+    /// </summary>
+    private async Task TryReconnect()
+    {
+        isReconnecting = true;
+        StateHasChanged();
+
+        try
+        {
+            // 等待一小段时间让 UI 更新
+            await Task.Delay(100);
+
+            var reconnected = await ConnectionState.ForceReconnectCheckAsync();
+
+            if (reconnected)
+            {
+                // 重新连接成功，可以尝试重新初始化音频
+                await InvokeAsync(StateHasChanged);
+            }
+            else
+            {
+                // 重连失败，显示消息
+                await Task.Delay(1000); // 给用户一些反馈时间
+            }
+        }
+        finally
+        {
+            isReconnecting = false;
+            StateHasChanged();
+        }
+    }
+    
+    /// <summary>
+    /// 显示重新连接消息
+    /// </summary>
+    private void ShowReconnectMessage()
+    {
+        showReconnectMessage = true;
+        StateHasChanged();
+    }
+    
+    /// <summary>
+    /// 显示音频错误消息
+    /// </summary>
+    private async Task ShowAudioError(string errorMessage)
+    {
+        // 在实际项目中，可以实现更完善的错误通知机制
+        Logger.LogError(errorMessage);
+        await JSRuntime.InvokeVoidAsync("alert", errorMessage);
+    }
+    
+    /// <summary>
+    /// 获取安全的URL用于日志记录（移除敏感信息）
+    /// </summary>
+    private string GetSafeUrlForLogging()
+    {
+        if (string.IsNullOrEmpty(AudioUrl))
+            return "[空URL]";
+            
+        // 对于data URL，只记录前缀
+        if (AudioUrl.StartsWith("data:"))
+        {
+            var index = AudioUrl.IndexOf(",");
+            return index > 0 ? $"{AudioUrl[..index]}[...]" : AudioUrl[..Math.Min(50, AudioUrl.Length)];
+        }
+        
+        // 对于普通URL，限制长度
+        return AudioUrl[..Math.Min(100, AudioUrl.Length)];
+    }
+    
+    /// <summary>
+    /// 刷新当前页面
+    /// </summary>
+    private void RefreshPage()
+    {
+        Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+    }
+    
+    /// <summary>
+    /// 重新连接到服务器
+    /// </summary>
+    private void Reconnect()
+    {
+        // 强制重新加载页面
+        Navigation.NavigateTo(Navigation.Uri, forceLoad: true);
+    }
+    
+    /// <summary>
+    /// 处理连接断开事件
+    /// </summary>
+    private async Task HandleDisconnection()
+    {
+        ConnectionState.SetDisconnected();
+        await InvokeAsync(StateHasChanged);
+    }
+    
+    /// <summary>
+    /// 检查音频是否可播放
+    /// </summary>
+    private async Task CheckAudioStatus()
+    {
+        try
+        {
+            var duration = await GetDuration();
+            Logger.LogInformation($"音频时长: {duration} 秒");
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "检查音频状态错误");
+        }
+    }
+
+    // 播放控制方法（供父组件调用）
+    /// <summary>
+    /// 播放音频
+    /// </summary>
+    public async Task Play()
+    {
+        if (_disposed || !ConnectionState.IsConnected)
+        {
+            Logger.LogWarning("播放请求被拒绝: 组件已释放或连接断开");
+            return;
+        }
+        try
+        {
+            await AudioService.PlayAsync(audioElement);
+            Logger.LogInformation("音频开始播放");
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("Connection"))
+        {
+            await HandleDisconnection();
+            ShowReconnectMessage();
+        }
+        catch (Exception ex)
+        {
+            await HandleDisconnection();
+            Logger.LogError(ex, "播放错误");
+        }
+    }
+    
+    /// <summary>
+    /// 暂停音频播放
+    /// </summary>
+    public async Task Pause()
+    {
+        if (_disposed || !ConnectionState.IsConnected)
+        {
+            Logger.LogWarning("暂停请求被拒绝: 组件已释放或连接断开");
+            return;
+        }
+        try
+        {
+            await AudioService.PauseAsync(audioElement);
+            Logger.LogInformation("音频已暂停");
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("Connection"))
+        {
+            await HandleDisconnection();
+            ShowReconnectMessage();
+        }
+        catch (Exception ex)
+        {
+            await HandleDisconnection();
+            Logger.LogError(ex, "暂停错误");
+        }
+    }
+    
+    /// <summary>
+    /// 设置音频音量
+    /// </summary>
+    /// <param name="volume">音量值，范围 0.0 到 1.0</param>
+    public async Task SetVolume(float volume)
+    {
+        if (_disposed || !ConnectionState.IsConnected)
+        {
+            Logger.LogWarning("设置音量请求被拒绝: 组件已释放或连接断开");
+            return;
+        }
+        try
+        {
+            // 验证音量范围
+            volume = Math.Clamp(volume, 0.0f, 1.0f);
+            await AudioService.SetVolumeAsync(audioElement, volume);
+            Logger.LogInformation($"音频音量已设置为: {volume}");
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("Connection"))
+        {
+            await HandleDisconnection();
+            ShowReconnectMessage();
+        }
+        catch (Exception ex)
+        {
+            await HandleDisconnection();
+            Logger.LogError(ex, "设置音量错误");
+        }
+    }
+    
+    /// <summary>
+    /// 设置音频播放时间
+    /// </summary>
+    /// <param name="time">播放时间，单位秒</param> 
+    /// <returns>一个任务，完成时表示设置播放时间完成</returns>
+    public async Task SetCurrentTime(double time)
+    {
+        if (_disposed || !ConnectionState.IsConnected)
+        {
+            Logger.LogWarning("设置播放时间请求被拒绝: 组件已释放或连接断开");
+            return;
+        }
+        try
+        {
+            // 验证时间范围
+            var duration = await GetDuration();
+            time = Math.Clamp(time, 0, duration);
+            
+            await AudioService.SetCurrentTimeAsync(audioElement, time);
+            Logger.LogInformation($"音频播放时间已设置为: {time} 秒");
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("Connection"))
+        {
+            await HandleDisconnection();
+            ShowReconnectMessage();
+        }
+        catch (Exception ex)
+        {
+            await HandleDisconnection();
+            Logger.LogError(ex, "设置播放时间错误");
+        }
+    }
+    
+    /// <summary>
+    /// 获取当前音频播放时间
+    /// </summary>
+    /// <returns>当前播放时间，单位秒</returns>
+    public async Task<double> GetCurrentTime()
+    {
+        if (_disposed || !ConnectionState.IsConnected)
+        {
+            Logger.LogWarning("获取当前时间请求被拒绝: 组件已释放或连接断开");
+            return 0;
+        }
+        try
+        {
+            var time = await AudioService.GetCurrentTimeAsync(audioElement);
+            return Math.Max(0, time); // 确保返回非负值
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("Connection"))
+        {
+            await HandleDisconnection();
+            ShowReconnectMessage();
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            await HandleDisconnection();
+            Logger.LogError(ex, "获取当前时间错误");
+            return 0;
+        }
+    }
+    
+    /// <summary>
+    /// 获取音频总时长
+    /// </summary>
+    /// <returns>音频总时长，单位秒</returns>
+    public async Task<double> GetDuration()
+    {
+        if (_disposed || !ConnectionState.IsConnected)
+        {
+            Logger.LogWarning("获取时长请求被拒绝: 组件已释放或连接断开");
+            return 0;
+        }
+
+        try
+        {
+            var duration = await AudioService.GetDurationAsync(audioElement);
+            Logger.LogDebug($"获取音频时长: {duration}秒");
+            return duration;
+        }
+        catch (InvalidOperationException ex) when (ex.Message.Contains("Connection"))
+        {
+            await HandleDisconnection();
+            ShowReconnectMessage();
+            return 0;
+        }
+        catch (Exception ex)
+        {
+            await HandleDisconnection();
+            Logger.LogError(ex, "获取音频时长错误");
+            return 0;
+        }
+    }
+    
+    /// <summary>
+    /// 检查音频是否可播放
+    /// </summary>
+    /// <param name="audioElement">音频元素引用</param>
+    /// <returns>如果音频可播放则返回 true，否则返回 false</returns>
+    public async Task<bool> IsAudioReady(ElementReference audioElement)
+    {
+        if (_disposed || !ConnectionState.IsConnected)
+            return false;
+
+        try
+        {
+            return await AudioService.IsAudioReadyAsync(audioElement);
+        }
+        catch (ObjectDisposedException)
+        {
+            await HandleDisconnection();
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "检查音频是否可播放时出错");
+            return false;
+        }
+    }
+    
+    /// <summary>
+    /// 检查音频是否播放结束
+    /// </summary>
+    /// <param name="audioElement">音频元素引用</param>
+    /// <returns>如果音频播放结束则返回 true，否则返回 false</returns>
+    public async Task<bool> IsAudioEnded(ElementReference audioElement)
+    {
+        if (_disposed || !ConnectionState.IsConnected)
+            return false;
+
+        try
+        {
+            return await AudioService.IsAudioEndedAsync(audioElement);
+        }
+        catch (ObjectDisposedException)
+        {
+            await HandleDisconnection();
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "检查音频是否播放结束时出错");
+            return false;
+        }
+    }
+    
+    /// <summary>
+    /// 监听音频加载事件
+    /// </summary>
+    /// <param name="audioElement">音频元素引用</param>
+    /// <returns>任务完成时返回</returns>
+    public async Task WaitForAudioLoad(ElementReference audioElement)
+    {
+        if (_disposed || !ConnectionState.IsConnected)
+            return;
+
+        try
+        {
+            await AudioService.WaitForAudioLoadAsync(audioElement);
+        }
+        catch (ObjectDisposedException)
+        {
+            await HandleDisconnection();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "监听音频加载事件时出错");
+        }
+    }
+    
+    /// <summary>
+    /// 等待音频准备就绪
+    /// </summary>
+    /// <param name="audioElement">音频元素引用</param>
+    /// <returns>任务完成时返回</returns>
+    public async Task WaitForAudioReady(ElementReference audioElement)
+    {
+        if (_disposed || !ConnectionState.IsConnected)
+            return;
+
+        try
+        {
+            await AudioService.WaitForAudioReadyAsync(audioElement);
+        }
+        catch (ObjectDisposedException)
+        {
+            await HandleDisconnection();
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "等待音频准备就绪时出错");
+        }
+    }
+    
+    // 音频事件处理
+    [JSInvokable]
+    public async Task HandlePlay()
+    {
+        if (!_disposed)
+        {
+            Logger.LogInformation("音频播放事件触发");
+            await OnPlay.InvokeAsync();
+        }
+    }
+    
+    [JSInvokable]
+    public async Task HandlePause()
+    {
+        if (!_disposed)
+        {
+            Logger.LogInformation("音频暂停事件触发");
+            await OnPause.InvokeAsync();
+        }
+    }
+    
+    [JSInvokable]
+    public async Task HandleEnded()
+    {
+        if (!_disposed)
+        {
+            Logger.LogInformation("音频播放结束事件触发");
+            await OnEnded.InvokeAsync();
+        }
+    }
+    
+    /// <summary>
+    /// 异步释放资源
+    /// </summary>
+    /// <returns>任务完成时返回</returns>
+    public async ValueTask DisposeAsync()
+    {
+        // 防止重复释放
+        if (_disposed)
+            return;
+            
+        try
+        {
+            Logger.LogInformation("开始释放AudioPlayer资源");
+            
+            // 释放DotNetObjectReference和事件监听器
+            if (_dotNetHelper != null)
+            {
+                try
+                {
+                    await AudioService.RemoveAudioEventsAsync(audioElement);
+                    Logger.LogInformation("音频事件监听器移除成功");
+                }
+                catch (Exception ex)
+                {
+                    Logger.LogError(ex, "移除音频事件监听器时出错");
+                }
+                
+                _dotNetHelper.Dispose();
+                _dotNetHelper = null;
+                Logger.LogInformation("DotNetObjectReference已释放");
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "释放AudioPlayer资源时出错");
+        }
+        finally
+        {
+            _disposed = true;
+            Logger.LogInformation("AudioPlayer资源释放完成");
+        }
+    }
+}

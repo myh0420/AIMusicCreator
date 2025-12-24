@@ -1,0 +1,25 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AIMusicCreator.Entity\AIMusicCreator.Entity.csproj" />
+    <ProjectReference Include="..\AIMusicCreator.ServiceDefaults\AIMusicCreator.ServiceDefaults.csproj" />
+    <ProjectReference Include="..\AIMusicCreator.Utils\AIMusicCreator.Utils.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="FFMpegCore" Version="5.4.0" />
+    <PackageReference Include="FFMpegCore.Extensions.System.Drawing.Common" Version="5.0.3" />
+    <PackageReference Include="JiebaNet.Segmenter" Version="1.0.6" />
+    <PackageReference Include="Melanchall.DryWetMidi" Version="8.0.2" />
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.9" />
+    <PackageReference Include="Microsoft.ML.OnnxRuntime" Version="1.23.2" />
+    <PackageReference Include="NAudio.Lame" Version="2.1.0" />
+  </ItemGroup>
+
+</Project>

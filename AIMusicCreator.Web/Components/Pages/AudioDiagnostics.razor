@@ -1,0 +1,80 @@
+﻿@inject IJSRuntime JSRuntime
+
+<div class="card mt-3">
+    <div class="card-header">
+        <h6>音频诊断信息</h6>
+    </div>
+    <div class="card-body">
+        <button @onclick="RunDiagnostics" class="btn btn-sm btn-outline-primary mb-2">
+            运行诊断
+        </button>
+
+        @if (!string.IsNullOrEmpty(diagnosticInfo))
+        {
+            <pre class="bg-light p-2 small">@diagnosticInfo</pre>
+        }
+
+        @if (!string.IsNullOrEmpty(AudioUrl))
+        {
+            <div class="mt-2">
+                <h6>AudioUrl 信息:</h6>
+                <ul class="small">
+                    <li>类型: @(AudioUrl.StartsWith("data:") ? "Data URL" : "其他")</li>
+                    <li>长度: @AudioUrl.Length 字符</li>
+                    <li>MIME类型: @GetMimeTypeFromUrl(AudioUrl)</li>
+                    <li>前缀: @AudioUrl.Substring(0, Math.Min(50, AudioUrl.Length))...</li>
+                </ul>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string AudioUrl { get; set; } = string.Empty;
+    [Parameter] public ElementReference AudioElement { get; set; }
+
+    private string diagnosticInfo = string.Empty;
+    private IJSObjectReference? _jsModule;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _jsModule = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                "import", $"./js/SampleAudioStreamHelper.js?r={Guid.NewGuid}");
+        }
+    }
+
+    private async Task RunDiagnostics()
+    {
+        if (_jsModule == null) return;
+
+        try
+        {
+            var result = await _jsModule.InvokeAsync<object>("diagnoseAudio", AudioElement);
+            diagnosticInfo = System.Text.Json.JsonSerializer.Serialize(result, new System.Text.Json.JsonSerializerOptions
+            {
+                WriteIndented = true
+            });
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            diagnosticInfo = $"诊断失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private string GetMimeTypeFromUrl(string url)
+    {
+        if (url.StartsWith("data:"))
+        {
+            var parts = url.Split(';');
+            if (parts.Length > 0)
+            {
+                return parts[0].Replace("data:", "");
+            }
+        }
+        return "未知";
+    }
+}

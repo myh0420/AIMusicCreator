@@ -1,0 +1,279 @@
+﻿@page "/vocal-separator"
+@using AIMusicCreator.Entity
+@using AIMusicCreator.Web.Services
+@using AIMusicCreator.Web.Shared
+@inject ApiService Api
+@inject IJSRuntime JsRuntime
+
+<div class="container mt-4">
+    <h2>人声分离工具</h2>
+    <hr />
+
+    <div class="row">
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">上传音频文件</h5>
+                    <InputFile OnChange="OnAudioSelected" accept="audio/wav,audio/mp3" class="mb-3" />
+
+                    @if (selectedAudioUrl != null)
+                    {
+                        <div class="mb-3">
+                            <h6>原始音频预览</h6>
+                            <AudioPlayer AudioUrl="@selectedAudioUrl" FileName="原始文件" />
+                        </div>
+
+                        <div class="mb-3">
+                            <label class="form-label">分离模式</label>
+                            <select @bind="separationMode" class="form-select">
+                                <option value="2stems">2轨分离（人声 + 伴奏）</option>
+                                <option value="4stems">4轨分离（人声 + 鼓 + 贝斯 + 其他）</option>
+                                <option value="5stems">5轨分离（人声 + 鼓 + 贝斯 + 钢琴 + 其他）</option>
+                            </select>
+                        </div>
+
+                        <button @onclick="StartSeparation" class="btn btn-primary w-100" disabled="@isSeparating">
+                            @(isSeparating ? "分离中..." : "开始分离")
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info text-center py-5">
+                            请上传音频文件（支持歌曲、直播录音等）
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <div class="col-md-6">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">分离结果</h5>
+
+                    @if (isSeparating)
+                    {
+                        <div class="text-center py-5">
+                            <div class="spinner-border text-primary" role="status">
+                                <span class="visually-hidden">分离中...</span>
+                            </div>
+                            <p class="mt-3">正在分离轨道，请耐心等待（大文件可能需要1-3分钟）</p>
+                        </div>
+                    }
+                    else if (separatedTracks.Any())
+                    {
+                        <div class="list-group">
+                            @foreach (var track in separatedTracks)
+                            {
+                                <div class="list-group-item">
+                                    <h6>@track.TrackName</h6>
+                                    <AudioPlayer AudioUrl="@track.AudioUrl" FileName="@track.TrackName" />
+                                    <button @onclick="() => DownloadTrack(track)" class="btn btn-sm btn-success mt-1">下载</button>
+                                </div>
+                            }
+                        </div>
+
+                        <button @onclick="DownloadAllTracks" class="btn btn-outline-primary w-100 mt-3">打包下载全部轨道</button>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info text-center py-5">
+                            分离后的轨道将显示在这里
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+@code {
+    /// <summary>
+    /// 人声分离组件
+    /// 提供音频文件上传、分离和下载功能
+    /// </summary>
+    private IBrowserFile? selectedFile;
+    /// <summary>
+    /// 选中的音频文件数据
+    /// </summary>
+    private byte[] selectedAudioData = [];
+    /// <summary>
+    /// 选中的音频文件预览 URL
+    /// </summary>
+    private string selectedAudioUrl = string.Empty;
+    /// <summary>
+    /// 是否正在分离音频
+    /// </summary>
+    private bool isSeparating;
+    /// <summary>
+    /// 分离模式
+    /// 2stems: 2轨分离（人声 + 伴奏）
+    /// 4stems: 4轨分离（人声 + 鼓 + 贝斯 + 其他）
+    /// 5stems: 5轨分离（人声 + 鼓 + 贝斯 + 钢琴 + 其他）
+    /// </summary>
+    private string separationMode = "2stems";
+    /// <summary>
+    /// 分离后的轨道列表
+    /// 包含轨道名称、音频数据和预览 URL
+    /// </summary>
+    private List<SeparatedTrack> separatedTracks = new();
+
+    // 分离轨道模型
+    /// <summary>
+    /// 分离后的轨道模型
+    /// 包含轨道名称、音频数据和预览 URL
+    /// </summary>
+    private class SeparatedTrack
+    {
+        /// <summary>
+        /// 轨道名称
+        /// </summary>
+        public string TrackName { get; set; } = "";
+        /// <summary>
+        /// 音频数据预览 URL
+        /// </summary>
+        public string AudioUrl { get; set; } = "";
+        /// <summary>
+        /// 音频数据（Base64 编码）
+        /// </summary>
+        public byte[] AudioData { get; set; } = Array.Empty<byte>();
+        /// <summary>
+        /// 音频文件 MIME 类型
+        /// </summary>
+        public string MimeType { get; set; } = "audio/wav";
+    }
+
+    // 选择音频文件
+    /// <summary>
+    /// 处理音频文件选择事件
+    /// 读取文件数据并生成预览 URL
+    /// </summary>
+    private async Task OnAudioSelected(InputFileChangeEventArgs e)
+    {
+        if (e.FileCount == 0) return;
+        selectedFile = e.File;
+
+        // 读取音频数据
+        using var stream = selectedFile.OpenReadStream();
+        selectedAudioData = new byte[stream.Length];
+        await stream.ReadAsync(selectedAudioData.AsMemory(0, (int)stream.Length));
+
+        // 生成预览URL
+        selectedAudioUrl = GetAudioUrl(selectedAudioData, selectedFile.ContentType);
+        separatedTracks.Clear(); // 重置分离结果
+    }
+
+    // 开始分离
+    /// <summary>
+    /// 处理分离按钮点击事件
+    /// 调用后端 API 进行人声分离
+    /// </summary>
+    private async Task StartSeparation()
+    {
+        if (selectedAudioData == null)
+        {
+            await JsRuntime.InvokeVoidAsync("alert", "请先上传音频文件");
+            return;
+        }
+
+        isSeparating = true;
+        separatedTracks.Clear();
+        try
+        {
+            // 调用后端分离API
+            var separationRequest = new VocalSeparationRequest
+            {
+                AudioData = Convert.ToBase64String(selectedAudioData),
+                SeparationMode = separationMode
+            };
+
+            var separatedData = await Api.SeparateVocalTracks(separationRequest);
+
+            // 构建分离结果列表
+            foreach (var trackData in separatedData)
+            {
+                separatedTracks.Add(new SeparatedTrack
+                {
+                    TrackName = trackData.TrackName,
+                    AudioData = trackData.AudioData,
+                    AudioUrl = GetAudioUrl(trackData.AudioData, "audio/wav"),
+                    MimeType = "audio/wav"
+                });
+            }
+
+            await JsRuntime.InvokeVoidAsync("alert", "分离完成！共得到 " + separatedTracks.Count + " 个轨道");
+        }
+        catch (Exception ex)
+        {
+            await JsRuntime.InvokeVoidAsync("alert", $"分离失败: {ex.Message}");
+        }
+        finally
+        {
+            isSeparating = false;
+        }
+    }
+
+    // 下载单个轨道
+    /// <summary>
+    /// 处理下载单个轨道按钮点击事件
+    /// 调用后端 API 保存轨道音频文件
+    /// </summary>
+    private async Task DownloadTrack(SeparatedTrack track)
+    {
+        if (selectedFile == null) return;
+        var fileName = $"{SanitizeFileName(selectedFile.Name)}_{track.TrackName}.wav";
+        await Api.SaveFile(track.AudioData, fileName, track.MimeType);
+    }
+
+    // 打包下载全部轨道
+    /// <summary>
+    /// 处理下载全部轨道按钮点击事件
+    /// 调用后端 API 打包分离后的所有轨道音频文件
+    /// </summary>
+    private async Task DownloadAllTracks()
+    {
+        if (!separatedTracks.Any() || selectedFile == null) return;
+        var filesToZip = separatedTracks.Select(t => new
+        {
+            Name = $"{SanitizeFileName(selectedFile.Name)}_{t.TrackName}.wav",
+            Data = Convert.ToBase64String(t.AudioData)
+        }).ToList();
+
+        await JsRuntime.InvokeVoidAsync("downloadZip", "separated_tracks.zip", filesToZip);
+    }
+
+    // 辅助：生成音频URL
+    /// <summary>
+    /// 生成音频数据的 Base64 编码 URL
+    /// 用于在页面上预览音频
+    /// </summary>
+    private string GetAudioUrl(byte[] data, string mimeType)
+    {
+        return $"data:{mimeType};base64,{Convert.ToBase64String(data)}";
+    }
+
+    // 辅助：清理文件名中的无效字符
+    /// <summary>
+    /// 清理文件名中的无效字符
+    /// 确保文件名在文件系统中是安全的
+    /// </summary>
+    private string SanitizeFileName(string fileName)
+    {
+        var invalidChars = Path.GetInvalidFileNameChars();
+        return new string(fileName.Where(c => !invalidChars.Contains(c)).ToArray());
+    }
+
+    // 分离请求模型
+    // public class VocalSeparationRequest
+    // {
+    //     public string AudioData { get; set; } = "";
+    //     public string SeparationMode { get; set; } = "2stems";
+    // }
+
+    // 分离结果模型
+    // public class SeparatedTrackData
+    // {
+    //     public string TrackName { get; set; } = "";
+    //     public byte[] AudioData { get; set; } = Array.Empty<byte>();
+    // }
+}

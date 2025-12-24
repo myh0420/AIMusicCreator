@@ -1,0 +1,478 @@
+@page "/audio-cutter-joiner"
+@using AIMusicCreator.Web.Services
+@using AIMusicCreator.Web.Shared
+<!-- 必须显式引入 Blazor Web 命名空间（即使之前加过，再确认一次） -->
+@using Microsoft.AspNetCore.Components.Web
+@using System.Collections.Generic
+@inject ApiService Api
+@inject IJSRuntime JsRuntime
+
+<div class="container mt-4">
+    <h2>音频裁剪与拼接</h2>
+    <hr />
+
+    <!-- 功能切换 -->
+    <div class="btn-group mb-4" role="group">
+        <button type="button" class="btn @(currentMode == "cut" ? "btn-primary" : "btn-outline-primary")" @onclick='() => currentMode = "cut"'>
+            音频裁剪
+        </button>
+        <button type="button" class="btn @(currentMode == "join" ? "btn-primary" : "btn-outline-primary")" @onclick='() => currentMode = "join"'>
+            音频拼接
+        </button>
+    </div>
+
+    @if (currentMode == "cut")
+    {
+        <!-- 音频裁剪模式 -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label class="form-label">上传待裁剪音频</label>
+                    <InputFile OnChange="OnCutAudioSelected" accept="audio/wav,audio/mp3" />
+                </div>
+
+                @if (cutAudioUrl != null)
+                {
+                    <AudioPlayer AudioUrl="@cutAudioUrl" FileName="@cutFileName" />
+
+                    <div class="mt-3 card p-3">
+                        <h6>裁剪参数</h6>
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label>开始时间 (秒)</label>
+                                <input type="number" @bind="cutStart" min="0" step="0.1" class="form-control" />
+                            </div>
+                            <div class="col-md-6">
+                                <label>结束时间 (秒)</label>
+                                <input type="number" @bind="cutEnd" min="@cutStart" step="0.1" class="form-control" />
+                            </div>
+                        </div>
+
+                        <div class="mt-3">
+                            <button @onclick="PreviewCutSegment" class="btn btn-outline-primary me-2">预览片段</button>
+                            <button @onclick="CutAudio" class="btn btn-primary">执行裁剪</button>
+                        </div>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-info h-100 d-flex align-items-center justify-content-center">
+                        请上传音频文件开始裁剪
+                    </div>
+                }
+            </div>
+
+            <div class="col-md-6">
+                <h5>裁剪结果</h5>
+                @if (cutResultUrl != null)
+                {
+                    <AudioPlayer AudioUrl="@cutResultUrl" FileName="裁剪后的片段" />
+                    <div class="mt-2 d-flex gap-2">
+                        <button @onclick="SaveCutResult" class="btn btn-success">保存片段</button>
+                        <button @onclick="AddToJoinList" class="btn btn-secondary">添加到拼接列表</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-info h-100 d-flex align-items-center justify-content-center">
+                        裁剪后的片段将显示在这里
+                    </div>
+                }
+            </div>
+        </div>
+    }
+    else
+    {
+        <!-- 音频拼接模式 -->
+        <div class="row">
+            <div class="col-md-6">
+                <div class="mb-3">
+                    <label class="form-label">上传待拼接音频（支持多个）</label>
+                    <InputFile OnChange="OnJoinFilesSelected" accept="audio/wav,audio/mp3" multiple />
+                </div>
+
+                @if (joinFiles.Any())
+                {
+                    <div class="card p-3 mb-3">
+                        <h6>拼接列表（拖拽调整顺序）</h6>
+                        <!-- 拼接列表：修改拖拽事件绑定，调用JS传递数据 -->
+                        <div class="list-group" id="joinList">
+                            @foreach (var (file, index) in joinFiles.Select((f, i) => (f, i)))
+                            {
+                                <div class="list-group-item d-flex justify-content-between align-items-center"
+                                     draggable="true"
+                                     @ondragstart="(e) => OnDragStart(e, index)"
+                                     @ondragover="OnDragOver"
+                                     @ondrop="(e) => OnDrop(e, index)">
+                                    <div>
+                                        <span>@(index + 1). </span>
+                                        <span>@file.SafeFileName</span>
+                                        <div class="text-muted small">@file.Duration</div>
+                                    </div>
+                                    <button @onclick="() => RemoveJoinFile(index)" class="btn btn-sm btn-danger">×</button>
+                                </div>
+                            }
+                        </div>
+
+                        <button @onclick="JoinAudios" class="btn btn-primary w-100 mt-3" disabled="@(joinFiles.Count < 2)">
+                            执行拼接（@joinFiles.Count 个文件）
+                        </button>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-info h-100 d-flex align-items-center justify-content-center">
+                        请上传至少2个音频文件开始拼接
+                    </div>
+                }
+            </div>
+
+            <div class="col-md-6">
+                <h5>拼接结果</h5>
+                @if (joinResultUrl != null)
+                {
+                    <AudioPlayer AudioUrl="@joinResultUrl" FileName="拼接后的音频" />
+                    <div class="mt-2">
+                        <button @onclick="SaveJoinResult" class="btn btn-success">保存拼接结果</button>
+                    </div>
+                }
+                else
+                {
+                    <div class="alert alert-info h-100 d-flex align-items-center justify-content-center">
+                        拼接后的音频将显示在这里
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    private string currentMode = "cut"; // cut:裁剪, join:拼接
+    private IBrowserFile? cutAudioFile;
+    private string cutAudioUrl = string.Empty;
+    private string cutFileName = string.Empty;
+    private double cutStart = 0;
+    private double cutEnd = 3;
+    private byte[] cutAudioData = [];
+    private string cutResultUrl = string.Empty;
+    private byte[] cutResultData = [];
+
+    private List<JoinFileItem> joinFiles = new();
+    private string joinResultUrl = string.Empty;
+    private byte[] joinResultData = [];
+
+    // 拼接文件模型
+    private class JoinFileItem
+    {
+        public string SafeFileName { get; set; } = string.Empty;
+        public string Duration { get; set; } = string.Empty;
+        public byte[] Data { get; set; } = [];
+        public string MimeType { get; set; } = string.Empty;
+    }
+
+    // 裁剪：选择音频
+    private async Task OnCutAudioSelected(InputFileChangeEventArgs e)
+    {
+        if (e.FileCount == 0) return;
+        cutAudioFile = e.File;
+        cutFileName = SanitizeFileName(cutAudioFile.Name);
+
+        // 优化的音频数据读取方式，适合处理大型音频文件
+        const long MaxBufferSize = 50 * 1024 * 1024; // 50MB缓冲区限制
+        
+        using var stream = cutAudioFile.OpenReadStream(MaxBufferSize);
+        
+        if (stream.Length > MaxBufferSize)
+        {
+            // 对于大型音频文件，使用流式处理而不是一次性加载
+            // 1. 创建临时内存流以优化性能
+            using var tempStream = new MemoryStream();
+            
+            // 2. 分块读取数据以减少内存占用
+            var buffer = new byte[8192]; // 8KB读取块
+            int bytesRead;
+            
+            while ((bytesRead = await stream.ReadAsync(buffer)) > 0)
+            {
+                await tempStream.WriteAsync(buffer.AsMemory(0, bytesRead));
+            }
+            
+            cutAudioData = tempStream.ToArray();
+        }
+        else
+        {
+            // 对于小文件，保持原有的一次性读取方式
+            cutAudioData = new byte[stream.Length];
+            await stream.ReadAsync(cutAudioData.AsMemory(0, (int)stream.Length));
+        }
+        
+        cutAudioUrl = GetAudioUrl(cutAudioData, cutAudioFile.ContentType);
+
+        // 解析音频时长（实际项目通过后端API获取精准时长）
+        var duration = Math.Round(cutAudioData.Length / (1024.0 * 1024.0 * 0.001), 1);
+        cutEnd = duration;
+    }
+
+    // 裁剪：预览片段
+    private async Task PreviewCutSegment()
+    {
+        if (cutAudioData == null || cutStart >= cutEnd)
+        {
+            await JsRuntime.InvokeVoidAsync("alert", "请设置有效的裁剪时间范围");
+            return;
+        }
+
+        // 前端临时预览（实际项目通过后端API精准裁剪后预览）
+        await JsRuntime.InvokeVoidAsync("previewAudioSegment", cutAudioUrl, cutStart, cutEnd);
+    }
+
+    // 裁剪：执行裁剪（调用后端API）
+    private async Task CutAudio()
+    {
+        if (cutAudioData == null || cutStart >= cutEnd)
+        {
+            await JsRuntime.InvokeVoidAsync("alert", "请设置有效的裁剪时间范围");
+            return;
+        }
+
+        try
+        {
+            // 调用后端裁剪API
+            cutResultData = await Api.CutAudio(cutAudioData, cutStart, cutEnd);
+            cutResultUrl = GetAudioUrl(cutResultData, "audio/wav");
+        }
+        catch (Exception ex)
+        {
+            await JsRuntime.InvokeVoidAsync("alert", $"裁剪失败: {ex.Message}");
+        }
+    }
+
+    // 拼接：选择文件
+    private async Task OnJoinFilesSelected(InputFileChangeEventArgs e)
+    {
+        foreach (var file in e.GetMultipleFiles())
+        {
+            using var stream = file.OpenReadStream();
+            var data = new byte[stream.Length];
+            await stream.ReadAsync(data.AsMemory(0, (int)stream.Length));
+
+            // 解析时长（模拟）
+            var duration = Math.Round(data.Length / (1024.0 * 1024.0 * 0.001), 1);
+
+            joinFiles.Add(new JoinFileItem
+            {
+                SafeFileName = SanitizeFileName(file.Name),
+                Duration = $"{duration} 秒",
+                Data = data,
+                MimeType = file.ContentType
+            });
+        }
+    }
+
+    // 拼接：移除文件
+    private void RemoveJoinFile(int index)
+    {
+        joinFiles.RemoveAt(index);
+    }
+
+    // 移除原错误的OnDragStart，改为调用JS传递数据
+    private async Task OnDragStart(DragEventArgs e, int index)
+    {
+        // 通过JS设置拖拽数据（Blazor不支持直接SetData）
+        // await JsRuntime.InvokeVoidAsync("setDragData", e.DataTransfer, index.ToString());
+        // 设置拖拽效果
+        e.DataTransfer.EffectAllowed = "move";
+
+        // 存储拖拽数据到全局变量
+        await JsRuntime.InvokeVoidAsync("eval", $"window.dragData = '{index}'");
+
+        // 可选：设置拖拽图像
+        await SetDragImage(e, index);
+    }
+
+    // 允许拖拽放置（必须阻止默认行为）
+    private void OnDragOver(DragEventArgs e)
+    {
+        // 在 Blazor 中，DragEventArgs 没有 PreventDefault 方法
+        // 我们通过设置 e.DataTransfer.EffectAllowed 来允许放置
+        // e.PreventDefault(); //关键：允许drop事件触发
+        // e.DataTransfer.DropEffect = "move";
+        // 关键：必须先转换为 Blazor 的 DragEventArgs（避免类型混淆）
+            e.DataTransfer.DropEffect = "move";
+    }
+    // 设置拖拽图像（可选）
+    private async Task SetDragImage(DragEventArgs e, int index)
+    {
+        try
+        {
+            // 创建一个临时的拖拽图像
+            await JsRuntime.InvokeVoidAsync("eval", @"
+                const dragImage = document.createElement('div');
+                dragImage.textContent = '移动项目';
+                dragImage.style.background = 'rgba(0,0,0,0.7)';
+                dragImage.style.color = 'white';
+                dragImage.style.padding = '5px 10px';
+                dragImage.style.borderRadius = '4px';
+                dragImage.style.position = 'absolute';
+                dragImage.style.top = '-1000px';
+                document.body.appendChild(dragImage);
+
+                // 设置拖拽图像
+                if (window.dragEvent) {
+                    window.dragEvent.dataTransfer.setDragImage(dragImage, 10, 10);
+                }
+
+                // 清理
+                setTimeout(() => document.body.removeChild(dragImage), 100);
+            ");
+        }
+        catch
+        {
+            // 忽略错误
+        }
+    }
+    // 处理拖拽放置：交换列表顺序
+    private async Task OnDrop(DragEventArgs e, int targetIndex)
+    {
+        // e.PreventDefault();
+        // 通过JS获取拖拽数据
+        // var sourceIndexStr = await JsRuntime.InvokeAsync<string>("getDragData", e.DataTransfer);
+        // if (int.TryParse(sourceIndexStr, out int sourceIndex) && sourceIndex != targetIndex)
+        // {
+        //     ////交换列表项顺序
+        //     var temp = joinFiles[sourceIndex];
+        //     joinFiles[sourceIndex] = joinFiles[targetIndex];
+        //     joinFiles[targetIndex] = temp;
+        //     StateHasChanged(); 刷新UI
+        // }
+
+        // 获取拖拽数据
+        var sourceIndexStr = await JsRuntime.InvokeAsync<string>("eval",
+            "window.dragData || '-1'");
+
+        if (int.TryParse(sourceIndexStr, out int sourceIndex) &&
+            sourceIndex >= 0 && sourceIndex < joinFiles.Count &&
+            targetIndex >= 0 && targetIndex < joinFiles.Count &&
+            sourceIndex != targetIndex)
+        {
+            // 交换项目
+            await SwapItems(sourceIndex, targetIndex);
+        }
+
+        // 清除拖拽数据
+        await ClearDragData();
+    }
+    // 交换项目
+    private async Task SwapItems(int sourceIndex, int targetIndex)
+    {
+        var temp = joinFiles[sourceIndex];
+        joinFiles[sourceIndex] = joinFiles[targetIndex];
+        joinFiles[targetIndex] = temp;
+
+        StateHasChanged();
+
+        // 可选：添加动画效果
+        await AddSwapAnimation(sourceIndex, targetIndex);
+    }
+
+    // 添加交换动画（可选）
+    private async Task AddSwapAnimation(int sourceIndex, int targetIndex)
+    {
+        try
+        {
+            await JsRuntime.InvokeVoidAsync("eval", $@"
+                const items = document.querySelectorAll('.draggable-item');
+                if (items[{sourceIndex}] && items[{targetIndex}]) {{
+                    items[{sourceIndex}].style.transition = 'all 0.3s ease';
+                    items[{targetIndex}].style.transition = 'all 0.3s ease';
+                    setTimeout(() => {{
+                        items[{sourceIndex}].style.transition = '';
+                        items[{targetIndex}].style.transition = '';
+                    }}, 300);
+                }}
+            ");
+        }
+        catch
+        {
+            // 忽略错误
+        }
+    }
+
+    // 清除拖拽数据
+    private async Task ClearDragData()
+    {
+        await JsRuntime.InvokeVoidAsync("eval", "window.dragData = null");
+    }
+    // 拼接：执行拼接（调用后端API）
+    private async Task JoinAudios()
+    {
+        if (joinFiles.Count < 2)
+        {
+            await JsRuntime.InvokeVoidAsync("alert", "请至少添加2个音频文件");
+            return;
+        }
+
+        try
+        {
+            // 收集所有拼接文件的字节数组
+            var audioDatas = joinFiles.Select(f => f.Data).ToList();
+            // 调用后端拼接API
+            joinResultData = await Api.JoinAudios(audioDatas);
+            joinResultUrl = GetAudioUrl(joinResultData, "audio/wav");
+        }
+        catch (Exception ex)
+        {
+            await JsRuntime.InvokeVoidAsync("alert", $"拼接失败: {ex.Message}");
+        }
+    }
+
+    // 裁剪：保存结果
+    private async Task SaveCutResult()
+    {
+        if (cutResultData != null)
+        {
+            await Api.SaveFile(cutResultData, $"cut_{cutFileName}", "audio/wav");
+        }
+    }
+
+    // 拼接：保存结果
+    private async Task SaveJoinResult()
+    {
+        if (joinResultData != null)
+        {
+            await Api.SaveFile(joinResultData, "joined_audio.wav", "audio/wav");
+        }
+    }
+
+    // 添加裁剪片段到拼接列表
+    private void AddToJoinList()
+    {
+        if (cutResultData == null) return;
+
+        joinFiles.Add(new JoinFileItem
+        {
+            SafeFileName = $"裁剪片段_{cutStart}-{cutEnd}s.wav",
+            Duration = $"{Math.Round(cutEnd - cutStart, 1)} 秒",
+            Data = cutResultData,
+            MimeType = "audio/wav"
+        });
+
+        // 自动切换到拼接模式
+        currentMode = "join";
+    }
+
+    // 辅助：生成音频URL
+    private string GetAudioUrl(byte[] data, string mimeType)
+    {
+        return $"data:{mimeType};base64,{Convert.ToBase64String(data)}";
+    }
+
+    // 辅助：文件名 sanitize
+    private string SanitizeFileName(string fileName)
+    {
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var sanitized = new string(fileName.Where(c => !invalidChars.Contains(c)).ToArray());
+        return sanitized.Length > 30 ? sanitized[..30] + Path.GetExtension(fileName) : sanitized;
+    }
+}

@@ -1,0 +1,1426 @@
+﻿@page "/video-player-copy"
+@rendermode InteractiveServer
+@inject IJSRuntime JSRuntime
+@using Microsoft.AspNetCore.Components.Forms
+@implements IAsyncDisposable
+
+<div class="video-player-container">
+    <!-- 头部标题和控件 -->
+    <div class="player-header">
+        <h3>🎬 视频播放器</h3>
+        <div class="header-controls">
+            <button @onclick="ToggleFileInput" class="btn btn-outline-primary btn-sm">
+                @(showFileInput ? "隐藏文件选择" : "选择本地文件")
+            </button>
+            <button @onclick="ClearAll" class="btn btn-outline-secondary btn-sm">清除</button>
+        </div>
+    </div>
+
+    <!-- 文件选择区域 -->
+    @* @if (showFileInput)
+    {
+        <div class="file-selector">
+            <div class="file-drop-zone" @ondragenter="HandleDragEnter" @ondragleave="HandleDragLeave" @ondragover="HandleDragOver" @ondrop="HandleDrop">
+                <InputFile type="file"
+                           OnChange="OnFileSelected"
+                           accept=".mp4,.avi,.mov,.mkv,.webm,.wmv,.flv,.m4v,.3gp"
+                           class="file-input" />
+                <div class="drop-zone-content @(isDragOver ? "drag-over" : "")">
+                    <i class="bi bi-cloud-upload"></i>
+                    <h5>选择视频文件或拖放到此处</h5>
+                    <p class="text-muted">支持 MP4, AVI, MOV, MKV, WebM 等格式</p>
+                    <small class="text-info">最大文件大小: 50MB</small>
+                </div>
+            </div>
+
+            @if (selectedFile != null)
+            {
+                <div class="selected-file-info">
+                    <div class="file-details">
+                        <i class="bi bi-file-earmark-play"></i>
+                        <div class="file-info">
+                            <strong>@selectedFile.Name</strong>
+                            <span>@GetFileSize(selectedFile.Size)</span>
+                        </div>
+                    </div>
+                    <div class="file-actions">
+                        <button @onclick="PlayVideo" class="btn btn-success" disabled="@isLoading">
+                            @if (isLoading)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                <span>加载中...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-play-circle me-2"></i>
+                                <span>播放</span>
+                            }
+                        </button>
+                        <button @onclick="ClearSelectedFile" class="btn btn-outline-secondary">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    } *@
+    <!-- 文件选择区域 -->
+    @if (showFileInput)
+    {
+        <div class="file-selector">
+            <div class="file-drop-zone" @ondragenter="HandleDragEnter" @ondragleave="HandleDragLeave" @ondragover="HandleDragOver" @ondrop="HandleDrop">
+                <InputFile type="file"
+                           OnChange="OnFileSelected"
+                           accept='@string.Join(",", supportedFormats)'
+                           class="file-input" />@* accept=".mp4,.avi,.mov,.mkv,.webm,.wmv,.flv,.m4v,.3gp,.mpg,.mpeg" *@
+                <div class="drop-zone-content @(isDragOver ? "drag-over" : "")">
+                    <i class="bi bi-cloud-upload"></i>
+                    <h5>选择视频文件或拖放到此处</h5>
+                    <p class="text-muted">支持 MP4, AVI, MOV, MKV, WebM 等格式</p>
+                    <small class="text-success">✅ 支持大文件播放（电影等）</small>
+                </div>
+            </div>
+
+            @if (selectedFile != null)
+            {
+                <div class="selected-file-info">
+                    <div class="file-details">
+                        <i class="bi bi-file-earmark-play"></i>
+                        <div class="file-info">
+                            <strong>@selectedFile.Name</strong>
+                            <span>@GetFileSize(selectedFile.Size)</span>
+                            @if (selectedFile.Size > 100 * 1024 * 1024) // 大于100MB显示大文件提示
+                            {
+                                <span class="badge bg-warning ms-2">大文件</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="file-actions">
+                        <button @onclick="PlayVideoStreaming" class="btn btn-success" disabled="@isLoading">
+                            @if (isLoading)
+                            {
+                                <span class="spinner-border spinner-border-sm me-2"></span>
+                                <span>加载中...</span>
+                            }
+                            else
+                            {
+                                <i class="bi bi-play-circle me-2"></i>
+                                <span>流式播放</span>
+                            }
+                        </button>
+                        <button @onclick="ClearSelectedFile" class="btn btn-outline-secondary">
+                            <i class="bi bi-x"></i>
+                        </button>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+    <!-- 在文件选择区域后添加 -->
+    <div class="debug-section mt-3">
+        <button @onclick="ToggleDebug" class="btn btn-sm btn-outline-info">
+            @(showDebugInfo ? "隐藏调试" : "显示调试")
+        </button>
+        <button @onclick="TestJavaScript" class="btn btn-sm btn-outline-warning ms-2">测试JS</button>
+    </div>
+    <!-- 视频播放器 -->
+    @if (!string.IsNullOrEmpty(currentVideoUrl))
+    {
+        <div class="video-player-wrapper">
+            <div class="video-container">
+                <video @ref="videoElement"
+                       id="main-video-player"
+                       controls
+                       preload="auto"
+                       @oncanplay="OnVideoCanPlay"
+                       @onloadedmetadata="OnVideoMetadataLoaded"
+                       @onloadstart="OnVideoLoadStart"
+                       @onwaiting="OnVideoWaiting"
+                       @onplaying="OnVideoPlaying"
+                       @onpause="OnVideoPause"
+                       @onended="OnVideoEnded"
+                       @ontimeupdate="OnTimeUpdate"
+                       @onerror="OnVideoError"
+                       @onvolumechange="OnVolumeChange"
+                       @onseeking="OnVideoSeeking"
+                       @onseeked="OnVideoSeeked">
+                    您的浏览器不支持视频播放
+                </video>
+            </div>
+
+            <!-- 播放器控制栏 -->
+            <div class="player-controls">
+                <!-- 进度条 -->
+                <div class="progress-container">
+                    <div class="time-display">
+                        <span class="current-time">@currentTimeDisplay</span>
+                        <span class="duration">@durationDisplay</span>
+                    </div>
+                    <input type="range"
+                           class="progress-slider"
+                           min="0"
+                           max="100"
+                           step="0.1"
+                           value="@progressValue"
+                           @oninput="OnProgressInput" />
+                </div>
+
+                <!-- 控制按钮 -->
+                <div class="control-buttons">
+                    <div class="left-controls">
+                        <button @onclick="TogglePlay" class="btn-control" title="播放/暂停">
+                            <i class="bi @(isPlaying ? "bi-pause-fill" : "bi-play-fill")"></i>
+                        </button>
+
+                        <button @onclick="ToggleMute" class="btn-control" title="静音">
+                            <i class="bi @(isMuted ? "bi-volume-mute-fill" : "bi-volume-up-fill")"></i>
+                        </button>
+
+                        <div class="volume-control">
+                            <input type="range"
+                                   class="volume-slider"
+                                   min="0"
+                                   max="100"
+                                   step="1"
+                                   value="@volumeValue"
+                                   @oninput="OnVolumeInput" />
+                        </div>
+                    </div>
+
+                    <div class="right-controls">
+                        <button @onclick="ToggleFullscreen" class="btn-control">
+                            <i class="bi bi-arrows-fullscreen"></i>
+                        </button>
+
+                        <div class="playback-rate">
+                            <select @onchange="ChangePlaybackRate" class="form-select form-select-sm">
+                                <option value="0.5">0.5x</option>
+                                <option value="0.75">0.75x</option>
+                                <option value="1" selected>正常</option>
+                                <option value="1.25">1.25x</option>
+                                <option value="1.5">1.5x</option>
+                                <option value="2">2x</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 视频信息 -->
+            <div class="video-info">
+                <div class="info-item">
+                    <span class="info-label">文件:</span>
+                    <span class="info-value">@currentFileName</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">分辨率:</span>
+                    <span class="info-value">@videoResolution</span>
+                </div>
+                <div class="info-item">
+                    <span class="info-label">状态:</span>
+                    <span class="info-value status-@videoStatus.ToLower()">@videoStatus</span>
+                </div>
+            </div>
+            <!-- 添加调试按钮 -->
+            <div class="debug-controls mt-2">
+                <button @onclick="CheckVideoState" class="btn btn-sm btn-outline-warning">
+                    <i class="bi bi-bug me-1"></i>检查视频状态
+                </button>
+                <button @onclick="ForceReload" class="btn btn-sm btn-outline-info ms-2">
+                    <i class="bi bi-arrow-clockwise me-1"></i>强制重载
+                </button>
+            </div>
+        </div>
+    }
+    else if (!isLoading)
+    {
+        <!-- 空状态 -->
+        <div class="empty-state">
+            <div class="empty-content">
+                <i class="bi bi-camera-video"></i>
+                <h4>选择视频文件开始播放</h4>
+                <p class="text-muted">支持大多数常见的视频格式</p>
+                <button @onclick="ToggleFileInput" class="btn btn-primary">
+                    <i class="bi bi-folder2-open me-2"></i>
+                    选择视频文件
+                </button>
+            </div>
+        </div>
+    }
+
+    <!-- 加载状态 -->
+    @if (isLoading && string.IsNullOrEmpty(currentVideoUrl))
+    {
+        <div class="loading-state">
+            <div class="spinner-border text-primary" role="status">
+                <span class="visually-hidden">加载中...</span>
+            </div>
+            <p>正在加载视频文件...</p>
+        </div>
+    }
+
+    <!-- 错误提示 -->
+    @if (!string.IsNullOrEmpty(errorMessage))
+    {
+        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <i class="bi bi-exclamation-triangle me-2"></i>
+            <strong>错误:</strong> @errorMessage
+            <button type="button" class="btn-close" @onclick="ClearError"></button>
+        </div>
+    }
+
+    <!-- 调试信息 (开发时可用) -->
+    @if (showDebugInfo)
+    {
+        <div class="debug-info">
+            <details>
+                <summary>调试信息</summary>
+                <pre>@debugInfo</pre>
+            </details>
+        </div>
+    }
+</div>
+
+@code {
+    // 元素引用
+    private ElementReference videoElement;
+
+    // 状态变量
+    private string? currentVideoUrl;
+    private string? currentFileName;
+    private string errorMessage = string.Empty;
+    private string debugInfo = string.Empty;
+    private string videoStatus = "就绪";
+    private string videoResolution = "未知";
+    private bool showFileInput = true;
+    private bool isLoading = false;
+    private bool isDragOver = false;
+    private bool showDebugInfo = false;
+    private IBrowserFile? selectedFile;
+
+    // 播放器状态
+    private bool isPlaying = false;
+    private bool isMuted = false;
+    private double progressValue = 0;
+    private double volumeValue = 100;
+    private string currentTimeDisplay = "00:00";
+    private string durationDisplay = "00:00";
+    private TimeSpan currentTime = TimeSpan.Zero;
+    private TimeSpan duration = TimeSpan.Zero;
+
+    // 支持的视频格式
+    private readonly string[] supportedFormats = [
+        ".mp4", ".avi", ".mov", ".mkv", ".webm", ".wmv", ".flv", ".m4v", ".3gp"
+    ];
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            await InitializeVideoPlayer();
+        }
+    }
+
+    private async Task InitializeVideoPlayer()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("initializeVideoPlayer");
+            debugInfo = "视频播放器初始化完成";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"播放器初始化失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    // 文件选择处理
+    private void OnFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        // 文件大小验证 (50MB限制)
+        // if (file.Size > 50 * 1024 * 1024)
+        // {
+        //     errorMessage = $"文件太大: {GetFileSize(file.Size)}。请选择小于50MB的文件。";
+        //     StateHasChanged();
+        //     return;
+        // }
+
+        // 文件类型验证
+        var extension = Path.GetExtension(file.Name).ToLower();
+        if (!supportedFormats.Contains(extension))
+        {
+            errorMessage = $"不支持的视频格式: {extension}。支持格式: {string.Join(", ", supportedFormats)}";
+            StateHasChanged();
+            return;
+        }
+
+        selectedFile = file;
+        errorMessage = string.Empty;
+        debugInfo = $"已选择文件: {file.Name} ({GetFileSize(file.Size)})";
+        StateHasChanged();
+    }
+
+    // 拖放功能 - 修复版
+    private void HandleDragEnter(DragEventArgs e)
+    {
+        isDragOver = true;
+        StateHasChanged();
+    }
+
+    private void HandleDragLeave(DragEventArgs e)
+    {
+        isDragOver = false;
+        StateHasChanged();
+    }
+
+    private void HandleDragOver(DragEventArgs e)
+    {
+        // 在 Blazor 中，我们需要使用 JavaScript 来阻止默认行为
+        e.DataTransfer.DropEffect = "copy";
+    }
+
+    private async void HandleDrop(DragEventArgs e)
+    {
+        isDragOver = false;
+        // 在 Blazor 中处理拖放文件比较复杂，这里只更新状态
+        debugInfo = "拖放功能已触发（需要额外JavaScript实现文件处理）";
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+    private async Task TestJavaScript()
+    {
+        try
+        {
+            var result = await JSRuntime.InvokeAsync<bool>("eval", "typeof createVideoObjectURL !== 'undefined'");
+            debugInfo = result ? "JavaScript函数已加载" : "JavaScript函数未找到";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"JavaScript测试失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private void ToggleDebug()
+    {
+        showDebugInfo = !showDebugInfo;
+        StateHasChanged();
+    }
+    // 新的视频事件处理
+    private async Task OnVideoSeeking()
+    {
+        videoStatus = "跳转中...";
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task OnVideoSeeked()
+    {
+        videoStatus = isPlaying ? "播放中" : "已暂停";
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    // 调试方法
+    private async Task CheckVideoState()
+    {
+        try
+        {
+            var state = await JSRuntime.InvokeAsync<object>("getVideoDetailedState", videoElement);
+            debugInfo = $"视频详细状态: {System.Text.Json.JsonSerializer.Serialize(state, new System.Text.Json.JsonSerializerOptions { WriteIndented = true })}";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"检查视频状态失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task ForceReload()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("reloadVideo", videoElement);
+            debugInfo = "强制重新加载视频";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"强制重载失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    // 播放视频 - 完全重写版
+   /* private async Task PlayVideo()
+    {
+        if (selectedFile == null) return;
+
+        try
+        {
+            isLoading = true;
+            errorMessage = string.Empty;
+            videoStatus = "加载中...";
+            StateHasChanged();
+
+            // 给UI时间更新加载状态
+            await Task.Delay(10);
+
+            debugInfo = $"开始处理文件: {selectedFile.Name}";
+            StateHasChanged();
+
+            // 清理之前的视频URL
+            await CleanupVideoUrl();
+
+            // 创建新的视频URL
+            var url = await CreateVideoObjectUrl(selectedFile);
+
+            if (!string.IsNullOrEmpty(url))
+            {
+                currentVideoUrl = url;
+                currentFileName = selectedFile.Name;
+                debugInfo = "视频URL已设置，等待渲染...";
+                StateHasChanged();
+
+                // 关键：等待Blazor完成渲染，然后通过JavaScript设置视频源
+                await Task.Delay(100);
+
+                // 使用JavaScript直接设置视频源并等待加载
+                var loadSuccess = await JSRuntime.InvokeAsync<bool>("setVideoSourceAndWait", videoElement, url);
+
+                if (loadSuccess)
+                {
+                    // 获取视频信息
+                    var videoInfo = await JSRuntime.InvokeAsync<VideoInfo>("getVideoInfo", videoElement);
+                    duration = TimeSpan.FromSeconds(videoInfo.Duration);
+                    durationDisplay = FormatTime(duration);
+                    videoResolution = $"{videoInfo.VideoWidth} × {videoInfo.VideoHeight}";
+
+                    videoStatus = "加载完成";
+                    debugInfo = $"视频加载成功！时长: {durationDisplay}, 分辨率: {videoResolution}";
+                }
+                else
+                {
+                    errorMessage = "视频加载失败，可能文件格式不受支持";
+                    debugInfo = "视频加载失败";
+                    await CleanupVideoUrl();
+                }
+            }
+            else
+            {
+                errorMessage = "无法创建视频URL";
+                debugInfo = "URL创建失败";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"播放失败: {ex.Message}";
+            debugInfo = $"异常: {ex.Message}";
+            Console.WriteLine($"播放视频异常: {ex}");
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+    */
+    #region 大文件优化设置
+    // 移除文件大小限制
+    // private void OnFileSelected(InputFileChangeEventArgs e)
+    // {
+    //     var file = e.File;
+    //     if (file == null) return;
+
+    //     /*移除文件大小验证*/
+    //     /*文件类型验证*/
+    //     var extension = Path.GetExtension(file.Name).ToLower();
+    //     if (!supportedFormats.Contains(extension))
+    //     {
+    //         errorMessage = $"不支持的视频格式: {extension}。支持格式: {string.Join(", ", supportedFormats)}";
+    //         StateHasChanged();
+    //         return;
+    //     }
+
+    //     selectedFile = file;
+    //     errorMessage = string.Empty;
+    //     debugInfo = $"已选择文件: {file.Name} ({GetFileSize(file.Size)})";
+    //     StateHasChanged();
+    // }
+    // 分块读取大文件
+    private async Task<string?> CreateStreamingVideoUrl(IBrowserFile file)
+    {
+        try
+        {
+            debugInfo = $"创建流式URL: {file.Name} ({GetFileSize(file.Size)})";
+            StateHasChanged();
+
+            // 使用更大的文件大小限制
+            var maxAllowedSize = 500 * 1024 * 1024; // 500MB
+
+            if (file.Size > maxAllowedSize)
+            {
+                debugInfo = $"文件过大，使用分块策略: {GetFileSize(file.Size)}";
+                return await CreateChunkedVideoUrl(file);
+            }
+
+            using var stream = file.OpenReadStream(maxAllowedSize);
+            var streamRef = new DotNetStreamReference(stream, leaveOpen: false);
+
+            return await JSRuntime.InvokeAsync<string>("createStreamingVideoURL", streamRef, file.ContentType, file.Name, file.Size);
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"创建流式URL失败: {ex.Message}";
+
+            // 如果仍然失败，尝试使用JavaScript文件API
+            return await UseJavaScriptFileAPI(file);
+        }
+    }
+
+    // 使用JavaScript File API直接处理文件（绕过Blazor限制）
+    private async Task<string?> UseJavaScriptFileAPI(IBrowserFile file)
+    {
+        try
+        {
+            debugInfo = "使用JavaScript File API处理大文件...";
+            StateHasChanged();
+
+            // 将文件传递给JavaScript处理
+            return await JSRuntime.InvokeAsync<string>("handleLargeFileWithJS", file);
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"JavaScript文件API失败: {ex.Message}";
+            return null;
+        }
+    }
+
+    // 分块处理超大文件
+    private async Task<string?> CreateChunkedVideoUrl(IBrowserFile file)
+    {
+        try
+        {
+            debugInfo = "使用分块方式处理超大文件...";
+            StateHasChanged();
+
+            // 创建第一个块来快速启动播放（使用较小的块避免限制）
+            const int firstChunkSize = 2 * 1024 * 1024; // 2MB 初始块
+            using var firstChunkStream = file.OpenReadStream(firstChunkSize);
+            var firstChunkRef = new DotNetStreamReference(firstChunkStream);
+
+            return await JSRuntime.InvokeAsync<string>("createChunkedVideoURL", firstChunkRef, file.ContentType, file.Name, file.Size, firstChunkSize);
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"分块处理失败: {ex.Message}";
+            return await UseAlternativeMethod(file);
+        }
+    }
+
+    // 替代方法：使用URL.createObjectURL直接处理文件输入
+    private async Task<string?> UseAlternativeMethod(IBrowserFile file)
+    {
+        try
+        {
+            debugInfo = "使用替代方法处理文件...";
+            StateHasChanged();
+
+            // 这个方法依赖于JavaScript直接处理文件输入元素
+            return await JSRuntime.InvokeAsync<string>("createObjectURLFromFileInput", file.Name, file.Size, file.ContentType);
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"替代方法失败: {ex.Message}";
+            return null;
+        }
+    }
+
+   /* // 流式播放方法
+    private async void PlayVideoStreaming()
+    {
+        if (selectedFile == null) return;
+
+        try
+        {
+            isLoading = true;
+            errorMessage = string.Empty;
+            videoStatus = "创建流式播放...";
+            StateHasChanged();
+
+            // 清理之前的资源
+            await CleanupVideoUrl();
+
+            debugInfo = $"开始流式播放: {selectedFile.Name}";
+            StateHasChanged();
+
+            // 使用流式URL创建方法
+            var url = await CreateStreamingVideoUrl(selectedFile);
+
+            if (!string.IsNullOrEmpty(url))
+            {
+                currentVideoUrl = url;
+                currentFileName = selectedFile.Name;
+                debugInfo = "流式URL创建成功";
+                StateHasChanged();
+
+                // 等待渲染后设置视频源
+                await Task.Delay(100);
+                var loadSuccess = await JSRuntime.InvokeAsync<bool>("setVideoSourceAndWait", videoElement, url);
+
+                if (loadSuccess)
+                {
+                    videoStatus = "流式播放就绪";
+                    debugInfo = "流式播放准备完成";
+                }
+                else
+                {
+                    errorMessage = "流式播放初始化失败";
+                }
+            }
+            else
+            {
+                errorMessage = "无法创建流式播放URL";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"流式播放失败: {ex.Message}";
+            debugInfo = $"异常: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+    */
+    /*
+    // 流式视频URL创建
+    private async Task<string?> CreateStreamingVideoUrl(IBrowserFile file)
+    {
+        try
+        {
+            debugInfo = "创建流式视频URL...";
+            StateHasChanged();
+
+            // 创建可读流
+            var stream = file.OpenReadStream();
+            var streamRef = new DotNetStreamReference(stream, leaveOpen: false);
+
+            // 使用JavaScript创建媒体源
+            return await JSRuntime.InvokeAsync<string>("createStreamingVideoURL", streamRef, file.ContentType, file.Name, file.Size);
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"创建流式URL失败: {ex.Message}";
+            return null;
+        }
+    }
+
+    // 大文件分块处理方法
+    private async Task<string?> CreateChunkedVideoUrl(IBrowserFile file)
+    {
+        try
+        {
+            debugInfo = "使用分块方式处理大文件...";
+            StateHasChanged();
+
+            // 对于超大文件，我们可以分块读取
+            const int chunkSize = 5 * 1024 * 1024; // 5MB chunks
+            var totalSize = file.Size;
+            var chunks = (int)Math.Ceiling((double)totalSize / chunkSize);
+
+            debugInfo = $"文件大小: {GetFileSize(totalSize)}, 分块数: {chunks}";
+            StateHasChanged();
+
+            // 创建第一个块来快速启动播放
+            using var firstChunkStream = file.OpenReadStream(chunkSize);
+            var firstChunkRef = new DotNetStreamReference(firstChunkStream);
+
+            return await JSRuntime.InvokeAsync<string>("createChunkedVideoURL", firstChunkRef, file.ContentType, file.Name, totalSize, chunkSize);
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"分块处理失败: {ex.Message}";
+            return await CreateDirectStreamUrl(file); // 回退到直接流
+        }
+    }
+    */
+
+    // 修复播放视频方法
+    private async void PlayVideo()
+    {
+        if (selectedFile == null) return;
+
+        try
+        {
+            isLoading = true;
+            errorMessage = string.Empty;
+            videoStatus = "加载中...";
+            StateHasChanged();
+
+            // 给UI时间更新
+            await Task.Delay(10);
+
+            debugInfo = $"开始处理文件: {selectedFile.Name}";
+            StateHasChanged();
+
+            // 清理之前的URL
+            await CleanupVideoUrl();
+
+            // 创建新的视频URL
+            var url = await CreateVideoObjectUrl(selectedFile);
+
+            if (!string.IsNullOrEmpty(url))
+            {
+                currentVideoUrl = url;
+                currentFileName = selectedFile.Name;
+                debugInfo = "视频URL已设置";
+                StateHasChanged();
+
+                // 等待渲染完成
+                await Task.Delay(100);
+
+                // 方法1: 使用简单设置（不等待验证）
+                var simpleSuccess = await JSRuntime.InvokeAsync<bool>("setVideoSourceSimple", videoElement, url);
+
+                if (simpleSuccess)
+                {
+                    debugInfo = "视频源设置成功，等待就绪...";
+                    videoStatus = "加载完成";
+
+                    // 异步验证，不阻塞播放
+                    _ = ValidateVideoAsync();
+                }
+                else
+                {
+                    // 方法1失败，尝试方法2
+                    debugInfo = "尝试备用设置方法...";
+                    var detailedSuccess = await JSRuntime.InvokeAsync<bool>("setVideoSourceAndWait", videoElement, url);
+
+                    if (detailedSuccess)
+                    {
+                        debugInfo = "视频加载成功";
+                        videoStatus = "就绪";
+                    }
+                    else
+                    {
+                        // 即使设置失败，也尝试播放（可能已经可以播放了）
+                        debugInfo = "设置返回失败，但尝试继续...";
+                        videoStatus = "就绪";
+                    }
+                }
+            }
+            else
+            {
+                errorMessage = "无法创建视频URL";
+                debugInfo = "URL创建失败";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"播放失败: {ex.Message}";
+            debugInfo = $"异常: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    // 异步验证视频（不阻塞用户）
+    private async Task ValidateVideoAsync()
+    {
+        try
+        {
+            await Task.Delay(2000); // 等待2秒让视频加载
+
+            var isValid = await JSRuntime.InvokeAsync<bool>("validateVideo", videoElement);
+            if (isValid)
+            {
+                debugInfo = "✅ 视频验证成功";
+                videoStatus = "就绪";
+            }
+            else
+            {
+                debugInfo = "⚠️ 视频验证失败，但可能仍可播放";
+                // 不设置错误消息，让用户尝试播放
+            }
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"验证过程中出错: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    // 修改流式播放初始化方法
+    private async void PlayVideoStreaming()
+    {
+        if (selectedFile == null) return;
+
+        try
+        {
+            isLoading = true;
+            errorMessage = string.Empty;
+            videoStatus = "创建流式播放...";
+            StateHasChanged();
+
+            await Task.Delay(10);
+
+            debugInfo = $"开始处理文件: {selectedFile.Name}";
+            StateHasChanged();
+
+            await CleanupVideoUrl();
+
+            var url = await CreateStreamingVideoUrl(selectedFile);
+
+            if (!string.IsNullOrEmpty(url))
+            {
+                currentVideoUrl = url;
+                currentFileName = selectedFile.Name;
+                debugInfo = "流式URL创建成功";
+                StateHasChanged();
+
+                await Task.Delay(100);
+
+                // 使用更宽松的设置方法
+                var loadSuccess = await JSRuntime.InvokeAsync<bool>("setVideoSourceSimple", videoElement, url);
+
+                if (loadSuccess)
+                {
+                    videoStatus = "流式播放就绪";
+                    debugInfo = "流式播放准备完成";
+
+                    // 异步验证
+                    _ = ValidateVideoAsync();
+                }
+                else
+                {
+                    // 即使返回失败，也继续（可能已经可以播放了）
+                    videoStatus = "就绪";
+                    debugInfo = "设置返回失败，但视频可能已就绪";
+                }
+            }
+            else
+            {
+                errorMessage = "无法创建流式播放URL";
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"流式播放失败: {ex.Message}";
+            debugInfo = $"异常: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    // 直接流URL（最简单的方法）
+    private async Task<string?> CreateDirectStreamUrl(IBrowserFile file)
+    {
+        try
+        {
+            debugInfo = "使用直接流方式...";
+            StateHasChanged();
+
+            // 直接创建流引用，不限制大小
+            var stream = file.OpenReadStream();
+            var streamRef = new DotNetStreamReference(stream, leaveOpen: false);
+
+            return await JSRuntime.InvokeAsync<string>("createDirectStreamURL", streamRef, file.ContentType);
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"直接流创建失败: {ex.Message}";
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// 大文件优化设置
+    /// </summary>
+    private async void PlayOptimizedForLargeFiles()
+    {
+        if (selectedFile == null) return;
+
+        try
+        {
+            isLoading = true;
+            errorMessage = string.Empty;
+            videoStatus = "优化大文件播放...";
+            StateHasChanged();
+
+            await CleanupVideoUrl();
+
+            string? url;
+
+            // 根据文件大小选择不同的策略
+            if (selectedFile.Size > 500 * 1024 * 1024) // 大于500MB
+            {
+                debugInfo = "检测到大文件，使用分块策略";
+                url = await CreateChunkedVideoUrl(selectedFile);
+            }
+            else if (selectedFile.Size > 100 * 1024 * 1024) // 大于100MB
+            {
+                debugInfo = "检测到中等文件，使用流式策略";
+                url = await CreateStreamingVideoUrl(selectedFile);
+            }
+            else
+            {
+                debugInfo = "小文件，使用标准播放";
+                url = await CreateDirectStreamUrl(selectedFile);
+            }
+
+            if (!string.IsNullOrEmpty(url))
+            {
+                currentVideoUrl = url;
+                currentFileName = selectedFile.Name;
+                StateHasChanged();
+
+                await Task.Delay(100);
+
+                // 使用大文件优化的设置方法
+                var loadSuccess = await JSRuntime.InvokeAsync<bool>("setVideoSourceForLargeFiles", videoElement, url, selectedFile.Name);
+
+                if (loadSuccess)
+                {
+                    videoStatus = "大文件播放就绪";
+                    debugInfo = $"大文件优化播放准备完成: {GetFileSize(selectedFile.Size)}";
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"大文件播放失败: {ex.Message}";
+        }
+        finally
+        {
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+    #endregion
+
+    // 创建视频对象URL - 修复版
+    private async Task<string?> CreateVideoObjectUrl(IBrowserFile file)
+    {
+        Stream? fileStream = null;
+
+        try
+        {
+            var maxAllowedSize = 50 * 1024 * 1024; // 50MB
+            debugInfo = $"创建视频对象URL: {file.Name} ({GetFileSize(file.Size)})";
+            StateHasChanged();
+
+            // 打开文件流
+            fileStream = file.OpenReadStream(maxAllowedSize);
+
+            // 创建流引用
+            var streamRef = new DotNetStreamReference(fileStream, leaveOpen: false);
+
+            // 调用JavaScript函数创建对象URL
+            var objectUrl = await JSRuntime.InvokeAsync<string>("createVideoObjectURL", streamRef, file.ContentType);
+
+            if (!string.IsNullOrEmpty(objectUrl))
+            {
+                debugInfo = "视频URL创建成功，正在验证...";
+                StateHasChanged();
+
+                // 验证视频URL
+                var isValid = await JSRuntime.InvokeAsync<bool>("validateVideoURL", objectUrl);
+                if (isValid)
+                {
+                    debugInfo = "视频验证成功";
+                    return objectUrl;
+                }
+                else
+                {
+                    debugInfo = "视频验证失败，文件可能损坏或格式不受支持";
+                    await JSRuntime.InvokeVoidAsync("URL.revokeObjectURL", objectUrl);
+                    return null;
+                }
+            }
+
+            return null;
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"创建视频URL失败: {ex.Message}";
+            Console.WriteLine($"创建视频对象URL异常: {ex}");
+            return null;
+        }
+        finally
+        {
+            fileStream?.Dispose();
+        }
+    }
+
+    // 备选方案：使用Base64数据URL
+    private async Task<string?> CreateAlternativeUrl(IBrowserFile file)
+    {
+        const int maxAllowedSize = 50 * 1024 * 1024; // 50MB for base64
+        const int bufferSize = 81920;
+
+        try
+        {
+            debugInfo = "尝试备用方案 (Base64)...";
+            StateHasChanged();
+
+            // 检查文件大小
+            if (file.Size > maxAllowedSize)
+            {
+                debugInfo = $"文件过大，Base64方案不支持: {GetFileSize(file.Size)}";
+                return null;
+            }
+
+            using var stream = file.OpenReadStream(maxAllowedSize);
+            using var memoryStream = new MemoryStream();
+
+            var buffer = new byte[bufferSize];
+            int bytesRead;
+
+            while ((bytesRead = await stream.ReadAsync(buffer)) > 0)
+            {
+                await memoryStream.WriteAsync(buffer.AsMemory(0, bytesRead));
+
+                if (memoryStream.Length > maxAllowedSize)
+                {
+                    debugInfo = "文件读取过程中超过大小限制";
+                    return null;
+                }
+            }
+
+            var base64String = Convert.ToBase64String(memoryStream.ToArray());
+            var dataUrl = $"data:{file.ContentType};base64,{base64String}";
+
+            debugInfo = "Base64 URL创建成功";
+            return dataUrl;
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"备用方案失败: {ex.Message}";
+            return null;
+        }
+    }
+    // 视频事件处理
+    private async Task OnVideoCanPlay()
+    {
+        videoStatus = "可以播放";
+        debugInfo = "视频可以开始播放";
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task OnVideoMetadataLoaded()
+    {
+        try
+        {
+            // 获取视频时长和分辨率
+            var videoInfo = await JSRuntime.InvokeAsync<VideoInfo>("getVideoInfo", videoElement);
+            duration = TimeSpan.FromSeconds(videoInfo.Duration);
+            durationDisplay = FormatTime(duration);
+            videoResolution = $"{videoInfo.VideoWidth} × {videoInfo.VideoHeight}";
+
+            videoStatus = "已加载";
+            debugInfo = $"视频信息: {durationDisplay}, {videoResolution}";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"获取视频元数据失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnVideoLoadStart()
+    {
+        videoStatus = "开始加载";
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task OnVideoWaiting()
+    {
+        videoStatus = "缓冲中...";
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task OnVideoPlaying()
+    {
+        isPlaying = true;
+        videoStatus = "播放中";
+        errorMessage = string.Empty;
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task OnVideoPause()
+    {
+        isPlaying = false;
+        videoStatus = "已暂停";
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task OnVideoEnded()
+    {
+        isPlaying = false;
+        videoStatus = "播放结束";
+        progressValue = 100;
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    private async Task OnTimeUpdate()
+    {
+        try
+        {
+            var currentTimeInfo = await JSRuntime.InvokeAsync<TimeInfo>("getCurrentTime", videoElement);
+            currentTime = TimeSpan.FromSeconds(currentTimeInfo.CurrentTime);
+            currentTimeDisplay = FormatTime(currentTime);
+
+            if (duration.TotalSeconds > 0)
+            {
+                progressValue = (currentTime.TotalSeconds / duration.TotalSeconds) * 100;
+            }
+
+            StateHasChanged();
+        }
+        catch (Exception)
+        {
+            // 忽略时间更新错误
+        }
+    }
+
+    private async Task OnVideoError()
+    {
+        try
+        {
+            var errorInfo = await JSRuntime.InvokeAsync<string>("getVideoError", videoElement);
+            videoStatus = "错误";
+            errorMessage = $"视频播放错误: {errorInfo}";
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            errorMessage = $"视频加载失败{ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnVolumeChange()
+    {
+        // 音量变化处理
+        StateHasChanged();
+        await Task.CompletedTask;
+    }
+
+    // 播放器控制方法
+    private async Task TogglePlay()
+    {
+        try
+        {
+            if (isPlaying)
+            {
+                await JSRuntime.InvokeVoidAsync("pauseVideo", videoElement);
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("playVideo", videoElement);
+            }
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"播放控制失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleMute()
+    {
+        try
+        {
+            isMuted = !isMuted;
+            await JSRuntime.InvokeVoidAsync("setVideoMuted", videoElement, isMuted);
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"静音控制失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    // 修复进度条和音量控制 - 使用 oninput 而不是 bind
+    private async Task OnProgressInput(ChangeEventArgs e)
+    {
+        try
+        {
+            if (double.TryParse(e.Value?.ToString(), out var percent))
+            {
+                progressValue = percent;
+                var targetTime = (percent / 100) * duration.TotalSeconds;
+                await JSRuntime.InvokeVoidAsync("seekVideo", videoElement, targetTime);
+            }
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"跳转失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnVolumeInput(ChangeEventArgs e)
+    {
+        try
+        {
+            if (double.TryParse(e.Value?.ToString(), out var volume))
+            {
+                volumeValue = volume;
+                var volumeLevel = volume / 100;
+                await JSRuntime.InvokeVoidAsync("setVideoVolume", videoElement, volumeLevel);
+                isMuted = volumeLevel == 0;
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"音量控制失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task ChangePlaybackRate(ChangeEventArgs e)
+    {
+        try
+        {
+            if (double.TryParse(e.Value?.ToString(), out var rate))
+            {
+                await JSRuntime.InvokeVoidAsync("setPlaybackRate", videoElement, rate);
+                debugInfo = $"播放速度设置为: {rate}x";
+                StateHasChanged();
+            }
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"播放速度设置失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    private async Task ToggleFullscreen()
+    {
+        try
+        {
+            await JSRuntime.InvokeVoidAsync("toggleFullscreen", videoElement);
+        }
+        catch (Exception ex)
+        {
+            debugInfo = $"全屏切换失败: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    // 工具方法
+    private string FormatTime(TimeSpan time)
+    {
+        return $"{(int)time.TotalMinutes:00}:{time.Seconds:00}";
+    }
+
+    private string GetFileSize(long bytes)
+    {
+        string[] sizes = { "B", "KB", "MB", "GB" };
+        int order = 0;
+        double len = bytes;
+        while (len >= 1024 && order < sizes.Length - 1)
+        {
+            order++;
+            len = len / 1024;
+        }
+        return $"{len:0.##} {sizes[order]}";
+    }
+
+    // 清理方法
+    private async Task CleanupVideoUrl()
+    {
+        if (!string.IsNullOrEmpty(currentVideoUrl))
+        {
+            try
+            {
+                await JSRuntime.InvokeVoidAsync("URL.revokeObjectURL", currentVideoUrl);
+                debugInfo = "清理之前的视频URL";
+            }
+            catch (Exception ex)
+            {
+                debugInfo = $"清理URL失败: {ex.Message}";
+            }
+            currentVideoUrl = null;
+        }
+    }
+
+    private void ClearSelectedFile()
+    {
+        selectedFile = null;
+        StateHasChanged();
+    }
+
+    private void ClearError()
+    {
+        errorMessage = string.Empty;
+        StateHasChanged();
+    }
+
+    // 修复缺失的方法
+    private void ToggleFileInput()
+    {
+        showFileInput = !showFileInput;
+        StateHasChanged();
+    }
+
+    private async void ClearAll()
+    {
+        await CleanupVideoUrl();
+        selectedFile = null;
+        currentFileName = null;
+        errorMessage = string.Empty;
+        videoStatus = "就绪";
+        isPlaying = false;
+        progressValue = 0;
+        currentTimeDisplay = "00:00";
+        durationDisplay = "00:00";
+        StateHasChanged();
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        await CleanupVideoUrl();
+    }
+
+    // 辅助类
+    private class VideoInfo
+    {
+        public double Duration { get; set; }
+        public int VideoWidth { get; set; }
+        public int VideoHeight { get; set; }
+    }
+
+    private class TimeInfo
+    {
+        public double CurrentTime { get; set; }
+    }
+}

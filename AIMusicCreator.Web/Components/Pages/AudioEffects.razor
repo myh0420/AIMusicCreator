@@ -1,0 +1,314 @@
+﻿@page "/audio-effects"
+@inject ApiService Api
+@inject IJSRuntime JsRuntime
+@using AIMusicCreator.Entity
+@using AIMusicCreator.Web.Services
+@using AIMusicCreator.Web.Shared
+@using Microsoft.AspNetCore.Components.Web
+@rendermode InteractiveServer
+
+<div class="container mt-4">
+    <h2>音频特效工具箱</h2>
+    <hr />
+
+    <div class="row">
+        <!-- 左侧：文件上传与预览 -->
+        <div class="col-md-4">
+            <div class="card h-100">
+                <div class="card-body">
+                    <h5 class="card-title">上传音频</h5>
+                    <InputFile OnChange="OnAudioSelected" accept="audio/wav,audio/mp3" class="mb-3" />
+
+                    @if (originalAudioUrl != null)
+                    {
+                        <div class="mb-3">
+                            <h6>原始音频</h6>
+                            <AudioPlayer AudioUrl="@originalAudioUrl" FileName="原始文件" />
+                        </div>
+
+                        <div class="mb-3">
+                            <h6>特效预览</h6>
+                            <AudioPlayer AudioUrl="@effectedAudioUrl" FileName="添加特效后" />
+                        </div>
+
+                        <button @onclick="ApplyAllEffects" class="btn btn-primary w-100 mt-2" disabled="@isApplying">
+                            @(isApplying ? "应用中..." : "应用特效并导出")
+                        </button>
+                    }
+                    else
+                    {
+                        <div class="alert alert-info text-center py-5">
+                            请上传音频文件开始添加特效
+                        </div>
+                    }
+                </div>
+            </div>
+        </div>
+
+        <!-- 右侧：特效参数调节 -->
+        <div class="col-md-8">
+            @if (originalAudioData != null)
+            {
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5>混响特效（空间感）</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label>房间大小（0-100）</label>
+                                <input type="range" @bind="reverbRoomSize" min="0" max="100" step="1" class="form-range" />
+                                <small class="text-muted">当前：@reverbRoomSize</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label>湿信号比例（0-100）</label>
+                                <input type="range" @bind="reverbWetDry" min="0" max="100" step="1" class="form-range" />
+                                <small class="text-muted">当前：@reverbWetDry</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label>衰减时间（0.1-5秒）</label>
+                                <input type="range" @bind="reverbDecay" min="0.1" max="5" step="0.1" class="form-range" />
+                                <small class="text-muted">当前：@reverbDecay 秒</small>
+                            </div>
+                        </div>
+                        <button @onclick="PreviewReverb" class="btn btn-outline-primary mt-2">预览混响</button>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5>均衡器（EQ）</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label>低音（60Hz）</label>
+                                <input type="range" @bind="eqBass" min="-12" max="12" step="0.5" class="form-range" />
+                                <small class="text-muted">当前：@eqBass dB</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label>中音（1kHz）</label>
+                                <input type="range" @bind="eqMid" min="-12" max="12" step="0.5" class="form-range" />
+                                <small class="text-muted">当前：@eqMid dB</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label>高音（8kHz）</label>
+                                <input type="range" @bind="eqTreble" min="-12" max="12" step="0.5" class="form-range" />
+                                <small class="text-muted">当前：@eqTreble dB</small>
+                            </div>
+                        </div>
+                        <button @onclick="PreviewEQ" class="btn btn-outline-primary mt-2">预览均衡器</button>
+                    </div>
+                </div>
+
+                <div class="card mb-3">
+                    <div class="card-header">
+                        <h5>压缩器（动态范围）</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label>阈值（-40至0 dB）</label>
+                                <input type="range" @bind="compThreshold" min="-40" max="0" step="1" class="form-range" />
+                                <small class="text-muted">当前：@compThreshold dB</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label>比率（1:1至10:1）</label>
+                                <input type="range" @bind="compRatio" min="1" max="10" step="0.5" class="form-range" />
+                                <small class="text-muted">当前：@compRatio : 1</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label>增益（0-12 dB）</label>
+                                <input type="range" @bind="compGain" min="0" max="12" step="0.5" class="form-range" />
+                                <small class="text-muted">当前：@compGain dB</small>
+                            </div>
+                        </div>
+                        <button @onclick="PreviewCompressor" class="btn btn-outline-primary mt-2">预览压缩器</button>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <h5>创意特效</h5>
+                    </div>
+                    <div class="card-body">
+                        <div class="row g-3">
+                            <div class="col-md-6">
+                                <label>失真度（0-100）</label>
+                                <input type="range" @bind="distortionAmount" min="0" max="100" step="1" class="form-range" />
+                                <small class="text-muted">当前：@distortionAmount</small>
+                            </div>
+                            <div class="col-md-6">
+                                <label>立体声扩展（0-100）</label>
+                                <input type="range" @bind="stereoWidth" min="0" max="100" step="1" class="form-range" />
+                                <small class="text-muted">当前：@stereoWidth</small>
+                            </div>
+                        </div>
+                        <button @onclick="PreviewCreativeEffects" class="btn btn-outline-primary mt-2">预览创意特效</button>
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    // 音频数据
+    private IBrowserFile? selectedFile;
+    private byte[] originalAudioData = [];
+    private string originalAudioUrl = string.Empty;
+    private string effectedAudioUrl = string.Empty;
+    private bool isApplying;
+
+    // 混响参数
+    private int reverbRoomSize = 50;
+    private int reverbWetDry = 30;
+    private double reverbDecay = 1.5;
+
+    // 均衡器参数
+    private double eqBass = 0;
+    private double eqMid = 0;
+    private double eqTreble = 0;
+
+    // 压缩器参数
+    private int compThreshold = -20;
+    private double compRatio = 4;
+    private double compGain = 2;
+
+    // 创意特效参数
+    private int distortionAmount = 0;
+    private int stereoWidth = 50;
+
+    // 选择音频文件
+    private async Task OnAudioSelected(InputFileChangeEventArgs e)
+    {
+        if (e.FileCount == 0) return;
+        selectedFile = e.File;
+
+        // 读取音频数据
+        using var stream = selectedFile.OpenReadStream();
+        originalAudioData = new byte[stream.Length];
+        await stream.ReadAsync(originalAudioData.AsMemory(0, (int)stream.Length));
+
+        // 生成原始音频预览URL
+        originalAudioUrl = GetAudioUrl(originalAudioData, selectedFile.ContentType);
+        effectedAudioUrl = originalAudioUrl; // 初始特效预览等于原始音频
+    }
+
+    // 预览混响
+    private async Task PreviewReverb()
+    {
+        await ApplyEffects(true, false, false, false);
+    }
+
+    // 预览均衡器
+    private async Task PreviewEQ()
+    {
+        await ApplyEffects(false, true, false, false);
+    }
+
+    // 预览压缩器
+    private async Task PreviewCompressor()
+    {
+        await ApplyEffects(false, false, true, false);
+    }
+
+    // 预览创意特效
+    private async Task PreviewCreativeEffects()
+    {
+        await ApplyEffects(false, false, false, true);
+    }
+
+    // 应用所有特效并导出
+    private async Task ApplyAllEffects()
+    {
+        await ApplyEffects(true, true, true, true, true);
+    }
+
+    // 核心：调用后端应用特效
+    private async Task ApplyEffects(bool applyReverb, bool applyEQ, bool applyCompressor, bool applyCreative, bool isExport = false)
+    {
+        if (originalAudioData == null || selectedFile == null) return;
+
+        isApplying = true;
+        try
+        {
+            // 构造特效参数请求
+            var effectRequest = new AudioEffectRequest
+            {
+                AudioData = Convert.ToBase64String(originalAudioData),
+                ApplyReverb = applyReverb,
+                ReverbRoomSize = reverbRoomSize / 100.0, // 归一化到0-1
+                ReverbWetDry = reverbWetDry / 100.0,
+                ReverbDecay = reverbDecay,
+                ApplyEQ = applyEQ,
+                EqBass = eqBass,
+                EqMid = eqMid,
+                EqTreble = eqTreble,
+                ApplyCompressor = applyCompressor,
+                CompThreshold = compThreshold,
+                CompRatio = compRatio,
+                CompGain = compGain,
+                ApplyCreative = applyCreative,
+                DistortionAmount = distortionAmount / 100.0,
+                StereoWidth = stereoWidth / 100.0
+            };
+
+            // 调用后端特效API
+            var effectedData = await Api.ApplyAudioEffects(effectRequest);
+            var mimeType = selectedFile.ContentType ?? "audio/wav";
+            effectedAudioUrl = GetAudioUrl(effectedData, mimeType);
+
+            // 如果是导出模式，保存文件
+            if (isExport)
+            {
+                var fileName = $"effected_{SanitizeFileName(selectedFile!.Name)}";
+                await Api.SaveFile(effectedData, fileName, mimeType);
+                await JsRuntime.InvokeVoidAsync("alert", "特效应用成功，文件已保存！");
+            }
+        }
+        catch (Exception ex)
+        {
+            await JsRuntime.InvokeVoidAsync("alert", $"特效应用失败: {ex.Message}");
+        }
+        finally
+        {
+            isApplying = false;
+        }
+    }
+
+    // 辅助：生成音频URL
+    private string GetAudioUrl(byte[] data, string mimeType)
+    {
+        return $"data:{mimeType};base64,{Convert.ToBase64String(data)}";
+    }
+
+    // 辅助：清理文件名
+    private string SanitizeFileName(string fileName)
+    {
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var sanitized = new string(fileName.Where(c => !invalidChars.Contains(c)).ToArray());
+        return sanitized;
+    }
+
+    // 特效请求模型
+    // public class AudioEffectRequest
+    // {
+    //     public string AudioData { get; set; } = "";
+    //     public bool ApplyReverb { get; set; }
+    //     public double ReverbRoomSize { get; set; }
+    //     public double ReverbWetDry { get; set; }
+    //     public double ReverbDecay { get; set; }
+    //     public bool ApplyEQ { get; set; }
+    //     public double EqBass { get; set; }
+    //     public double EqMid { get; set; }
+    //     public double EqTreble { get; set; }
+    //     public bool ApplyCompressor { get; set; }
+    //     public int CompThreshold { get; set; }
+    //     public double CompRatio { get; set; }
+    //     public double CompGain { get; set; }
+    //     public bool ApplyCreative { get; set; }
+    //     public double DistortionAmount { get; set; }
+    //     public double StereoWidth { get; set; }
+    // }
+}

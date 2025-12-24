@@ -1,0 +1,145 @@
+﻿@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.JSInterop
+@inject IJSRuntime JSRuntime
+@implements IAsyncDisposable
+
+<div class="audio-player card p-3 mb-3">
+    <!-- 确保 src 属性正确绑定 -->
+    <audio @ref="audioElement"
+           src="@CurrentAudioUrl"
+           class="w-100"
+           controls
+           preload="auto">
+        您的浏览器不支持音频播放
+    </audio>
+
+    @if (!string.IsNullOrEmpty(FileName))
+    {
+        <div class="text-muted mt-2 small">@FileName</div>
+    }
+
+    <!-- 状态显示 -->
+    <div class="mt-2">
+        @if (isLoading)
+        {
+            <div class="spinner-border spinner-border-sm text-primary" role="status">
+                <span class="visually-hidden">加载中...</span>
+            </div>
+            <small class="text-muted ms-2">音频加载中...</small>
+        }
+        else if (isLoaded)
+        {
+            <small class="text-success">✅ 音频加载完成</small>
+        }
+        else if (!string.IsNullOrEmpty(errorMessage))
+        {
+            <small class="text-danger">❌ @errorMessage</small>
+        }
+    </div>
+
+    <!-- 调试信息 -->
+    <div class="mt-2 p-2 bg-light border rounded small">
+        <div>AudioUrl: @(AudioUrl?.Substring(0, Math.Min(50, AudioUrl?.Length ?? 0))+"...") (@(AudioUrl?.Length ?? 0) 字符)</div>
+        <div>CurrentAudioUrl: @(CurrentAudioUrl?.Substring(0, Math.Min(50, CurrentAudioUrl?.Length ?? 0)) + "...")</div>
+        <div>状态: @(isLoading ? "加载中" : isLoaded ? "已加载" : "未加载")</div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public string AudioUrl { get; set; } = string.Empty;
+    [Parameter] public string FileName { get; set; } = "音频文件";
+
+    private ElementReference audioElement;
+    private IJSObjectReference? _audioHelper;
+    private bool _disposed = false;
+    private bool isLoading = false;
+    private bool isLoaded = false;
+    private string errorMessage = string.Empty;
+    private string _lastAudioUrl = string.Empty;
+
+    // 当前实际使用的音频 URL
+    private string CurrentAudioUrl { get; set; } = string.Empty;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _audioHelper = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                "import", $"./js/SampleAudioStreamHelper.js?r={Guid.NewGuid}");
+
+            await SetupSimpleAudioEvents();
+        }
+
+        // 当 AudioUrl 变化时更新 CurrentAudioUrl
+        if (!string.IsNullOrEmpty(AudioUrl) && AudioUrl != _lastAudioUrl)
+        {
+            Console.WriteLine($"AudioUrl 变化: {AudioUrl.Substring(0, Math.Min(30, AudioUrl.Length))}...");
+            _lastAudioUrl = AudioUrl;
+            CurrentAudioUrl = AudioUrl; // 直接赋值给 CurrentAudioUrl
+            isLoading = true;
+            isLoaded = false;
+            errorMessage = string.Empty;
+            StateHasChanged();
+
+            // 等待下一次渲染确保 audio 元素更新
+            await Task.Delay(100);
+        }
+    }
+
+    private async Task SetupSimpleAudioEvents()
+    {
+        if (_audioHelper == null) return;
+
+        try
+        {
+            await _audioHelper.InvokeVoidAsync("setupSimpleAudioEvents", audioElement,
+                DotNetObjectReference.Create(new AudioEventCallbacks
+                {
+                    OnLoading = () => InvokeAsync(() =>
+                    {
+                        Console.WriteLine("OnLoading 回调");
+                        isLoading = true;
+                        StateHasChanged();
+                    }),
+                    OnLoaded = () => InvokeAsync(() =>
+                    {
+                        Console.WriteLine("OnLoaded 回调");
+                        isLoading = false;
+                        isLoaded = true;
+                        StateHasChanged();
+                    }),
+                    OnError = (msg) => InvokeAsync(() =>
+                    {
+                        Console.WriteLine($"OnError 回调: {msg}");
+                        isLoading = false;
+                        errorMessage = msg;
+                        StateHasChanged();
+                    })
+                }));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"设置音频事件错误: {ex.Message}");
+        }
+    }
+
+    // 暴露 AudioElementRef 供诊断使用
+    public ElementReference AudioElementRef => audioElement;
+
+    public async ValueTask DisposeAsync()
+    {
+        if (!_disposed)
+        {
+            _disposed = true;
+            _audioHelper?.DisposeAsync();
+            await Task.CompletedTask;
+        }
+    }
+
+    public class AudioEventCallbacks
+    {
+        public Action OnLoading { get; set; } = () => { };
+        public Action OnLoaded { get; set; } = () => { };
+        public Action<string> OnError { get; set; } = (msg) => { };
+    }
+}

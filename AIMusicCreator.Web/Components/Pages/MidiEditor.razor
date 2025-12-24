@@ -1,0 +1,171 @@
+﻿@page "/midi-editor"
+@using AIMusicCreator.Entity
+@using AIMusicCreator.Web.Services
+@inject ApiService Api
+
+<div class="container mt-4">
+    <h2>MIDI编辑工具</h2>
+    <hr />
+
+    <div class="mb-4">
+        <label class="form-label">上传MIDI文件</label>
+        <InputFile OnChange="OnMidiFileSelected" accept=".mid,.midi" />
+    </div>
+
+    @if (selectedMidiFile != null)
+    {
+        <!-- MIDI信息展示 -->
+        <div class="card mb-4 p-3">
+            <h5>MIDI信息</h5>
+            @if (midiInfo != null)
+            {
+                <div class="row">
+                    <div class="col-md-3"><strong>速度：</strong>@midiInfo.Bpm BPM</div>
+                    <div class="col-md-3"><strong>音轨数：</strong>@midiInfo.TrackCount</div>
+                    <div class="col-md-3"><strong>时长：</strong>@Math.Round(midiInfo.DurationSeconds, 1) 秒</div>
+                    <div class="col-md-3"><strong>乐器数：</strong>@midiInfo.Instruments.Count</div>
+                </div>
+                <div class="mt-2">
+                    <strong>使用的乐器：</strong>
+                    <div class="text-muted">@(string.Join(", ", midiInfo.Instruments.Select(i => GetInstrumentName(i))))</div>
+                </div>
+            }
+            else
+            {
+                <div class="text-muted">正在解析MIDI信息...</div>
+            }
+        </div>
+
+        <!-- 速度调整 -->
+        <div class="card mb-4 p-3">
+            <h5>调整速度</h5>
+            <div class="row align-items-center">
+                <div class="col-md-6">
+                    <input type="range" @bind="newBpm" min="60" max="200" class="form-range" />
+                    <div class="text-center">@newBpm BPM</div>
+                </div>
+                <div class="col-md-6">
+                    <button @onclick="ChangeTempo" class="btn btn-primary w-100" disabled="@isProcessing">
+                        @(isProcessing ? "处理中..." : "应用速度变化")
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 乐器转换 -->
+        <div class="card mb-4 p-3">
+            <h5>转换乐器</h5>
+            <div class="row g-3">
+                <div class="col-md-4">
+                    <label class="form-label">音轨索引</label>
+                    <input type="number" @bind="trackIndex" min="0" class="form-control" />
+                </div>
+                <div class="col-md-4">
+                    <label class="form-label">目标乐器</label>
+                    <select @bind="selectedInstrument" class="form-select">
+                        <option value="0">钢琴</option>
+                        <option value="24">吉他</option>
+                        <option value="33">贝斯</option>
+                        <option value="48">弦乐</option>
+                        <option value="64">萨克斯</option>
+                        <option value="80">鼓组</option>
+                        <option value="100">合成器</option>
+                    </select>
+                </div>
+                <div class="col-md-4 d-flex align-items-end">
+                    <button @onclick="ChangeInstrument" class="btn btn-primary w-100" disabled="@isProcessing">
+                        @(isProcessing ? "处理中..." : "转换乐器")
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 处理结果 -->
+        @if (modifiedMidiData != null)
+        {
+            <div class="alert alert-success">
+                <h5>处理完成</h5>
+                <button @onclick="SaveModifiedMidi" class="btn btn-success">下载修改后的MIDI</button>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    private IBrowserFile? selectedMidiFile;
+    private MidiInfo midiInfo = new MidiInfo();
+    private int newBpm = 120;
+    private int trackIndex = 0;
+    private int selectedInstrument = 0;
+    private byte[] modifiedMidiData = [];
+    private bool isProcessing;
+    [Inject] IJSRuntime JSRuntime { get; set; } = null!;
+
+    // 乐器名称映射（简化版）
+    private string GetInstrumentName(int programNumber)
+    {
+        var instruments = new Dictionary<int, string>
+        {
+            {0, "钢琴"}, {24, "吉他"}, {33, "贝斯"}, {48, "弦乐"},
+            {64, "萨克斯"}, {80, "鼓组"}, {100, "合成器"}
+        };
+        return instruments.TryGetValue(programNumber, out var name) ? name : $"乐器 {programNumber}";
+    }
+
+    private async Task OnMidiFileSelected(InputFileChangeEventArgs e)
+    {
+        selectedMidiFile = e.File;
+        if (selectedMidiFile != null)
+        {
+            // 解析MIDI信息
+            midiInfo = await Api.ParseMidiInfo(selectedMidiFile);
+            newBpm = midiInfo.Bpm; // 初始化为原速度
+        }
+    }
+
+    private async Task ChangeTempo()
+    {
+        if (selectedMidiFile == null) return;
+
+        isProcessing = true;
+        try
+        {
+            modifiedMidiData = await Api.ChangeMidiTempo(selectedMidiFile, newBpm);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"速度调整失败: {ex.Message}");
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task ChangeInstrument()
+    {
+        if (selectedMidiFile == null) return;
+
+        isProcessing = true;
+        try
+        {
+            modifiedMidiData = await Api.ChangeMidiInstrument(selectedMidiFile, trackIndex, selectedInstrument);
+        }
+        catch (Exception ex)
+        {
+            await JSRuntime.InvokeVoidAsync("alert", $"乐器转换失败: {ex.Message}");
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task SaveModifiedMidi()
+    {
+        if (modifiedMidiData != null && selectedMidiFile != null)
+        {
+            await Api.SaveFile(modifiedMidiData, $"modified_{selectedMidiFile.Name}", "audio/midi");
+        }
+    }
+}
