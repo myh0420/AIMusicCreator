@@ -222,9 +222,9 @@ MIT License
 
 如有问题或建议，请通过以下方式联系：
 
-- 项目维护者：[Your Name]
-- 邮箱：[your-email@example.com]
-- GitHub Issues：[repository-url]/issues
+- 项目维护者：[laoma]
+- 邮箱：暂无//[your-email@example.com]
+- GitHub Issues：暂无//[repository-url]/issues
 
 ## 更新日志
 

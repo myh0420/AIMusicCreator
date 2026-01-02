@@ -203,7 +203,7 @@ namespace AIMusicCreator.ApiService.Controllers
         [ProducesResponseType(typeof(byte[]), StatusCodes.Status200OK)]
         [ProducesResponseType(StatusCodes.Status400BadRequest)]
         [ProducesResponseType(StatusCodes.Status500InternalServerError)]
-        public ActionResult<byte[]> ProcessVocal([FromBody] AIMusicCreator.Entity.AudioEffectRequest request)
+        public ActionResult<byte[]> ProcessVocal([FromBody] AudioEffectRequest request)
         {
             // 参数验证
             if (request == null)

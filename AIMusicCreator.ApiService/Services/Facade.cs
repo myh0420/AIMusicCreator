@@ -114,7 +114,7 @@ public class Facade : IFacade
     /// - 整合多个子系统的功能
     /// - 处理异常情况并记录错误
     /// </remarks>
-    public async Task<AudioPackage> CreateCompleteMusicAsync(string style, string mood, int bpm, string lyrics = null, string language = "zh")
+    public async Task<AudioPackage> CreateCompleteMusicAsync(string? style, string? mood, int bpm, string? lyrics = null, string language = "zh")
     {
         _logger.LogInformation("Starting complete music creation process with style: {Style}, mood: {Mood}, bpm: {BPM}", style ?? "", mood ?? "", bpm);
         
@@ -141,7 +141,7 @@ public class Facade : IFacade
             var accompanimentWav = _audioService.MidiToWav(accompanimentMidi);
             
             // 4. 可选：添加人声
-            byte[] vocalWav = null;
+            byte[]? vocalWav = null;
             if (!string.IsNullOrEmpty(lyrics))
             {
                 vocalWav = await Task.Run(() => _vocalService.GenerateVocal(lyrics, melodyMidi, language));
@@ -410,7 +410,7 @@ public class Facade : IFacade
     /// - 验证音频数据和输出流的有效性
     /// - 检查输出流是否可写
     /// </remarks>
-    private void ValidateInputs(AudioData audioData, Stream stream)
+    private static void ValidateInputs(AudioData audioData, Stream stream)
     {
         ArgumentNullException.ThrowIfNull(audioData);
 
@@ -433,7 +433,7 @@ public class Facade : IFacade
     /// 确保：
     /// - 验证音乐风格、情绪和BPM参数的有效性
     /// </remarks>
-    private void ValidateMidiParameters(string style, string mood, int bpm)
+    private static void ValidateMidiParameters(string style, string mood, int bpm)
     {
         if (string.IsNullOrWhiteSpace(style))
         {

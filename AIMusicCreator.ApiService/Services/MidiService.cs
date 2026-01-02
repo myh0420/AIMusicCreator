@@ -245,7 +245,7 @@ public class MidiService : IMidiService
             using var results = _onnxSession.Run(inputs);
             var tensor = results[0].AsTensor<int>();
             _logger.LogDebug("ONNX模型推理完成，生成 {Count} 个音符", tensor.Length);
-            return tensor.ToArray();
+            return [.. tensor];
         }
         catch (Exception ex)
         {
@@ -257,14 +257,25 @@ public class MidiService : IMidiService
     }
 
     /// <summary>
+    /// 内部类：用于存储音符的详细信息
+    /// </summary>
+    private class DetailedNote
+    {
+        public int Pitch { get; set; }           // MIDI音高
+        public int Duration { get; set; }        // 持续时间（ticks）
+        public int Velocity { get; set; }        // 力度（音量）
+        public int RestDuration { get; set; }    // 休止符持续时间（ticks）
+    }
+
+    /// <summary>
     /// 降级方案：生成基础音符序列（无模型时使用）
     /// </summary>
     /// <param name="keySignature">调号（0为C大调，1为A小调）</param>
     /// <param name="noteCount">要生成的音符数量</param>
     /// <returns>音符数组（MIDI音高值）</returns>
     /// <remarks>
-    /// 生成一个简单的音符序列，基于指定的调号和音符数量。
-    /// 每个音符为2拍，形成基本的旋律模式。
+    /// 生成一个有韵律感的音符序列，基于指定的调号和音符数量。
+    /// 包含节奏变化、力度变化和音乐结构。
     /// </remarks>
     private static int[] GenerateFallbackNotes(int keySignature, int noteCount)
     {
@@ -275,15 +286,46 @@ public class MidiService : IMidiService
                 ? [60, 62, 64, 65, 67, 69, 71] // C大调音阶
                 : [57, 59, 60, 62, 64, 65, 67]; // A小调音阶
 
+            // 生成更有结构的音符序列
             List<int> notes = [];
             var rnd = new Random();
             
-            // 生成带有简单旋律模式的音符序列
+            // 基本音乐结构：4拍为一小节，每4小节为一乐句
+            int beatsPerMeasure = 4;
+            int measures = (int)Math.Ceiling((double)noteCount / beatsPerMeasure);
+            int notesPerMeasure = (int)Math.Ceiling((double)noteCount / measures);
+            
+            // 和弦进行（简单的I-IV-V-I进行）
+            int[] rootNotes = keySignature == 0
+                ? [60, 65, 67, 60] // C大调：C-F-G-C
+                : [57, 62, 64, 57]; // A小调：A-D-E-A
+            
+            // 生成带有音乐结构的音符序列
             int lastNote = scale[0];
+            int measureCounter = 0;
+            int phraseCounter = 0;
+            
             for (int i = 0; i < noteCount; i++)
             {
+                // 每小节开始时，根据和弦进行调整根音
+                if (i % beatsPerMeasure == 0)
+                {
+                    measureCounter++;
+                    if (measureCounter % 4 == 0) // 每4小节为一乐句
+                    {
+                        phraseCounter++;
+                    }
+                    
+                    // 根据当前和弦根音调整起始音
+                    int currentRoot = rootNotes[measureCounter % rootNotes.Length];
+                    if (i % (beatsPerMeasure * 4) == 0) // 每乐句开始时回到根音
+                    {
+                        lastNote = currentRoot;
+                    }
+                }
+                
                 // 限制音符跳跃幅度，使旋律更流畅
-                int maxJump = i % 8 == 0 ? 2 : 1; // 每8个音符允许更大跳跃
+                int maxJump = (i % 8 == 0 || i % beatsPerMeasure == 0) ? 2 : 1; // 小节开始和每8个音符允许更大跳跃
                 int direction = rnd.Next(3) - 1; // -1, 0, 1
                 int jumpAmount = rnd.Next(maxJump + 1);
                 
@@ -294,13 +336,13 @@ public class MidiService : IMidiService
                 notes.Add(lastNote);
             }
             
-            return notes.ToArray();
+            return [.. notes];
         }
         catch (Exception ex)
         {
             // 极端情况下返回固定音符序列
             Console.WriteLine($"降级方案失败: {ex.Message}");
-            return Enumerable.Repeat(60, noteCount).ToArray(); // 返回全C音符
+            return [.. Enumerable.Repeat(60, noteCount)]; // 返回全C音符
         }
     }
 
@@ -311,8 +353,8 @@ public class MidiService : IMidiService
     /// <param name="bpm">每分钟节拍数</param>
     /// <returns>MIDI文件字节数组</returns>
     /// <remarks>
-    /// 生成一个简单的MIDI文件，包含音符序列和指定的BPM。
-    /// 每个音符持续1拍（480 ticks），音量为80。
+    /// 生成一个有韵律感的MIDI文件，包含音符序列和指定的BPM。
+    /// 包含节奏变化、力度变化和音乐结构。
     /// </remarks>
     private static byte[] ConvertToMidi(int[] notes, int bpm)
     {
@@ -325,16 +367,48 @@ public class MidiService : IMidiService
             int microsecondsPerQuarterNote = 60000000 / bpm;
             events.Add(new TempoEvent(microsecondsPerQuarterNote, 0));
 
-            // 添加乐器选择
-            events.Add(new PatchChangeEvent(0, 0, 0));
+            // 添加乐器选择 - 使用通道1（DryWetMIDI要求通道1-16）
+            events.Add(new PatchChangeEvent(1, 1, 0));
 
-            // 添加音符事件
+            // 添加音符事件（带节奏和力度变化）
             int currentTick = 0;
-            foreach (int pitch in notes)
+            var rnd = new Random();
+            int measureCounter = 0;
+            int beatsPerMeasure = 4;
+            
+            // 节奏模式：4拍为一小节，支持不同的音符时值
+            int[] noteDurations = [ticksPerQuarter * 2, ticksPerQuarter, ticksPerQuarter / 2, ticksPerQuarter / 4];
+            int[] velocityPatterns = [80, 85, 90, 95]; // 力度变化模式
+            
+            for (int i = 0; i < notes.Length; i++)
             {
-                int validPitch = Math.Clamp(pitch, 0, 127);
-                events.Add(new NoteOnEvent(currentTick, 0, validPitch, 80, ticksPerQuarter));
-                currentTick += ticksPerQuarter;
+                int validPitch = Math.Clamp(notes[i], 0, 127);
+                
+                // 每小节开始时，调整音符时值和力度
+                if (i % beatsPerMeasure == 0)
+                {
+                    measureCounter++;
+                }
+                
+                // 随机选择音符时值，但确保每小节总时值为4拍
+                int durationIndex = i % beatsPerMeasure == 0 ? 0 : rnd.Next(noteDurations.Length);
+                int duration = noteDurations[durationIndex];
+                
+                // 根据位置和乐句设置力度
+                int velocityIndex = measureCounter % velocityPatterns.Length;
+                int velocity = velocityPatterns[velocityIndex];
+                
+                // 重音：每小节第一拍力度增加
+                if (i % beatsPerMeasure == 0)
+                {
+                    velocity += 10;
+                }
+                
+                // 添加音符事件 - 使用通道1（DryWetMIDI要求通道1-16）
+                events.Add(new NoteOnEvent(currentTick, 1, validPitch, velocity, duration));
+                
+                // 更新当前时间
+                currentTick += duration;
             }
 
             // 添加轨道结束事件

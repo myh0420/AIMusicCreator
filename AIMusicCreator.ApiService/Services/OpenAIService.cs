@@ -63,10 +63,10 @@ public class OpenAIService : IOpenAIService
         };
         
         // 验证API密钥
-        var validation = ValidateApiKey(apiKey);
-        if (!validation.IsValid)
+        var (IsValid, ErrorMessage) = ValidateApiKey(apiKey);
+        if (!IsValid)
         {
-            _logger.LogWarning("API密钥验证失败: {ErrorMessage}", validation.ErrorMessage);
+            _logger.LogWarning("API密钥验证失败: {ErrorMessage}", ErrorMessage);
         }
     }
 
@@ -308,12 +308,19 @@ public class OpenAIService : IOpenAIService
             // 解析响应
             var result = JsonSerializer.Deserialize<OpenAIResponse>(responseContent, _jsonOptions);
             
-            if (result?.Choices == null || result.Choices.Length == 0 || result.Choices[0].Message?.Content == null)
+            if (result?.Choices == null || result.Choices.Length == 0)
             {
                 throw new InvalidOperationException("OpenAI API返回无效响应");
             }
             
-            return result.Choices[0].Message.Content;
+            var firstChoice = result.Choices[0];
+            if (firstChoice.Message == null || firstChoice.Message.Content == null)
+            {
+                throw new InvalidOperationException("OpenAI API返回无效响应");
+            }
+            
+            string content = firstChoice.Message.Content;
+            return content;
         }
         catch (HttpRequestException ex)
         {
@@ -434,7 +441,7 @@ public class OpenAIService : IOpenAIService
             var requestBody = new
             {
                 model = DEFAULT_MODEL,
-                messages = messages
+                messages
             };
             
             var jsonContent = JsonSerializer.Serialize(requestBody, _jsonOptions);
@@ -446,6 +453,7 @@ public class OpenAIService : IOpenAIService
             // 这里将实现调用OpenAI API的逻辑
             // 目前返回一个空字符串作为占位符
             _logger.LogInformation("聊天完成请求处理完成");
+            await Task.CompletedTask;
             return string.Empty;
         }
         catch (Exception ex)

@@ -23,6 +23,26 @@ public class ImprovedMelodyGenerator
     /// 它被初始化为一个新的随机数生成器实例，确保每次运行时都能获得不同的随机序列。
     /// </remarks>
     private static readonly Random _random = new();
+    
+    /// <summary>
+    /// 大调音阶半音间隔数组
+    /// </summary>
+    private static readonly int[] MajorScaleIntervals = [2, 2, 1, 2, 2, 2, 1];
+    
+    /// <summary>
+    /// 小调音阶半音间隔数组
+    /// </summary>
+    private static readonly int[] MinorScaleIntervals = [2, 1, 2, 2, 1, 2, 2];
+    
+    /// <summary>
+    /// 五声音阶半音间隔数组
+    /// </summary>
+    private static readonly int[] PentatonicScaleIntervals = [2, 2, 3, 2, 3];
+    
+    /// <summary>
+    /// 蓝调音阶半音间隔数组
+    /// </summary>
+    private static readonly int[] BluesScaleIntervals = [3, 2, 1, 1, 3, 2];
     /// <summary>
     /// 前一个音符事件列表
     /// </summary>
@@ -55,6 +75,8 @@ public class ImprovedMelodyGenerator
     /// 它在旋律生成过程中被更新，确保每个音符事件都根据当前参数进行生成。
     /// </remarks>
     private MelodyParameters? _currentParameters; // 当前旋律生成参数（可为null）
+    
+    #pragma warning disable CS0414 // 字段已被赋值但从未使用
     /// <summary>
     /// 当前装饰音类型
     /// </summary>
@@ -63,6 +85,7 @@ public class ImprovedMelodyGenerator
     /// 它在旋律生成过程中被更新，确保每个音符事件都根据当前装饰音类型进行生成。
     /// </remarks>
     private OrnamentType _ornamentType = OrnamentType.None; // 装饰音类型
+    #pragma warning restore CS0414 // 字段已被赋值但从未使用
     /// <summary>
     /// MIDI配置参数
     /// </summary>
@@ -234,7 +257,7 @@ public class ImprovedMelodyGenerator
         var scaleNotes = GetScaleNotes(parameters.Scale, parameters.Octave);
 
         // 选择音乐结构
-        MusicalStructure structure = SelectMusicalStructure(parameters.Style, parameters.Emotion);
+        MusicalStructure structure = SelectMusicalStructure(parameters.Style);
 
         // 获取乐句长度
         int phraseLength = GetPhraseLength(parameters.Style);
@@ -256,7 +279,7 @@ public class ImprovedMelodyGenerator
     /// 不同的风格和情绪会导致不同的结构选择，以适应不同的音乐需求和.listeners。
     /// 例如，流行音乐通常使用AABA或VerseChorus结构，而古典音乐则偏好ThemeVariation或Rondo结构。
     /// </remarks>
-    private MusicalStructure SelectMusicalStructure(MusicStyle style, Emotion emotion)
+    private static MusicalStructure SelectMusicalStructure(MusicStyle style)
     {
         // 根据音乐风格和情绪选择合适的结构
         return style switch
@@ -407,7 +430,7 @@ public class ImprovedMelodyGenerator
                 _currentBeat = absolutePosition;
 
                 // 检查是否应该添加音符
-                if (ShouldAddNoteAtBeat(absolutePosition, sectionRhythm, sectionParameters.Style))
+                if (ShouldAddNoteAtBeat(absolutePosition, sectionRhythm))
                 {
                     var noteEvent = CreateMusicalNote(sectionParameters, scaleNotes, sectionContour, absolutePosition, phraseLength);
 
@@ -514,7 +537,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据段落类型、音乐风格和情感选择不同的节奏模式。
     /// 每个模式都有不同的节奏效果，如同步、异步、循环等。
     /// </remarks>
-    private List<int> GetSectionRhythmPattern(string sectionType, MusicStyle style, Emotion emotion)
+    private static List<int> GetSectionRhythmPattern(string sectionType, MusicStyle style, Emotion emotion)
     {
         // 生成缓存键，添加null检查
         string cacheKey = $"{(sectionType ?? "Unknown")}_{style}_{emotion}";
@@ -583,7 +606,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据段落类型和情感选择不同的旋律轮廓模式。
     /// 每个模式都有不同的旋律效果，如平稳、波、谐波等。
     /// </remarks>
-    private List<int> GetSectionMelodicContour(string sectionType, Emotion emotion)
+    private static List<int> GetSectionMelodicContour(string sectionType, Emotion emotion)
     {
         // 生成缓存键，添加null检查
         string cacheKey = $"{(sectionType ?? "Unknown")}_{emotion}";
@@ -670,7 +693,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据随机数选择不同的平静轮廓模式。
     /// 每个模式都有不同的平静效果，如平静音、平静节奏等。
     /// </remarks>
-    private List<int> GetCalmMelodicContour()
+    private static List<int> GetCalmMelodicContour()
     {
         // 根据概率选择不同的平静轮廓模式
         if (_random.NextDouble() < 0.3)
@@ -689,7 +712,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据随机数选择不同的表现力轮廓模式。
     /// 每个模式都有不同的表现力效果，如表现力音、表现力节奏等。
     /// </remarks>
-    private List<int> GetExpressiveMelodicContour()
+    private static List<int> GetExpressiveMelodicContour()
     {
         // 根据概率选择不同的表现力轮廓模式
         if (_random.NextDouble() < 0.3)
@@ -708,7 +731,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据随机数选择不同的混合轮廓模式。
     /// 每个模式都有不同的混合效果，如混合音、混合节奏等。
     /// </remarks>
-    private List<int> GetMixedMelodicContour()
+    private static List<int> GetMixedMelodicContour()
     {
         // 根据概率选择不同的混合轮廓模式
         if (_random.NextDouble() < 0.3)
@@ -727,7 +750,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据随机数选择不同的上升式旋律轮廓模式。
     /// 每个模式都有不同的上升效果，如上升音、上升节奏等。
     /// </remarks>
-    private List<int> GetAscendingContour()
+    private static List<int> GetAscendingContour()
     {
         if (_random.NextDouble() < 0.3)
             return [0, 1, 2, 3, 4, 5, 6, 7];
@@ -745,7 +768,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据随机数选择不同的下降式旋律轮廓模式。
     /// 每个模式都有不同的下降效果，如下降音、下降节奏等。
     /// </remarks>
-    private List<int> GetDescendingContour()
+    private static List<int> GetDescendingContour()
     {
         if (_random.NextDouble() < 0.3)
             return [7, 6, 5, 4, 3, 2, 1, 0];
@@ -763,7 +786,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据随机数选择不同的拱形式旋律轮廓模式。
     /// 每个模式都有不同的拱效果，如拱音、拱节奏等。
     /// </remarks>
-    private List<int> GetArchContour()
+    private static List<int> GetArchContour()
     {
         if (_random.NextDouble() < 0.4)
             return [0, 2, 4, 6, 7, 6, 4, 2, 0];
@@ -779,7 +802,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据随机数选择不同的波形旋律轮廓模式。
     /// 每个模式都有不同的波形效果，如波形音、波形节奏等。
     /// </remarks>
-    private List<int> GetWaveContour()
+    private static List<int> GetWaveContour()
     {
         if (_random.NextDouble() < 0.3)
             return [3, 5, 3, 1, 3, 5, 3, 1];
@@ -797,7 +820,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据随机数选择不同的动机式旋律轮廓模式。
     /// 每个模式都有不同的动机效果，如动机音、动机节奏等。
     /// </remarks>
-    private List<int> GetMotivicContour()
+    private static List<int> GetMotivicContour()
     {
         if (_random.NextDouble() < 0.3)
             return [0, 1, 3, 0, 1, 4, 0, 1, 5];
@@ -815,7 +838,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据随机数选择不同的和声式旋律轮廓模式。
     /// 每个模式都有不同的和声效果，如和声音、和声节奏等。
     /// </remarks>
-    private List<int> GetHarmonicContour()
+    private static List<int> GetHarmonicContour()
     {
         if (_random.NextDouble() < 0.3)
             return [0, 2, 4, 0, 4, 2, 0];
@@ -833,7 +856,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据随机数选择不同的装饰性旋律轮廓模式。
     /// 每个模式都有不同的装饰效果，如装饰音、装饰节奏等。
     /// </remarks>
-    private List<int> GetOrnamentalContour()
+    private static List<int> GetOrnamentalContour()
     {
         if (_random.NextDouble() < 0.3)
             return [0, 1, 0, 2, 1, 0, 3, 2, 1, 0];
@@ -851,7 +874,7 @@ public class ImprovedMelodyGenerator
     /// 此方法返回一个简单的四分音符和八分音符模式，用于生成变奏。
     /// 每个拍数如果为1，则表示四分音符，为0则表示八分音符。
     /// </remarks>
-    private List<int> GetSimpleRhythmPattern()
+    private static List<int> GetSimpleRhythmPattern()
     {
         // 简单的四分音符和八分音符模式
         return [1, 0, 1, 0, 1, 0, 1, 0];
@@ -866,7 +889,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据原始节奏模式简化节奏，减少音符密度，使变奏更简单。
     /// 每个拍数如果大于0且随机数小于0.8，则简化为1（四分音符），否则简化为0（无音符）。
     /// </remarks>
-    private List<int> SimplifyRhythmPattern(List<int> pattern)
+    private static List<int> SimplifyRhythmPattern(List<int> pattern)
     {
         var simplified = new List<int>();
         foreach (var beat in pattern)
@@ -936,7 +959,7 @@ public class ImprovedMelodyGenerator
                 int absolutePosition = phraseStart + beatPosition;
                 _currentBeat = absolutePosition;
 
-                if (ShouldAddNoteAtBeat(absolutePosition, variationRhythm, variationParams.Style))
+                if (ShouldAddNoteAtBeat(absolutePosition, variationRhythm))
                 {
                     var noteEvent = CreateMusicalNote(variationParams, scaleNotes, variationContour,
                                                      absolutePosition, phraseLength);
@@ -962,7 +985,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据变奏编号返回不同的风格。
     /// 每个风格都代表了变奏中不同的音乐类型或音乐风格。
     /// </remarks>
-    private MusicStyle GetVariationStyle(int variationNumber)
+    private static MusicStyle GetVariationStyle(int variationNumber)
     {
         return variationNumber switch
         {
@@ -982,7 +1005,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据变奏编号返回不同的情绪。
     /// 每个情绪都代表了变奏中不同的情感或情感状态。
     /// </remarks>
-    private Emotion GetVariationEmotion(int variationNumber)
+    private static Emotion GetVariationEmotion(int variationNumber)
     {
         return variationNumber switch
         {
@@ -1004,16 +1027,17 @@ public class ImprovedMelodyGenerator
     /// 例如，大调音阶变为混合利底亚调式（降低第七音），
     /// 小调音阶变为多利亚调式（升高第六音）。
     /// </remarks>
-    private Scale GetVariationScale(Scale? originalScale)
-    {
-        if (originalScale == null)
-            return null;
+    private static Scale GetVariationScale(Scale? originalScale)
+        {
+            if (originalScale == null)
+                // 返回C大调音阶作为默认值，避免返回null
+                return ScaleFactory.CreateScale(NoteName.C, ScaleFactory.ScaleType.Major);
 
         // 获取原始音阶的音程半音数数组
         var originalIntervals = originalScale.Intervals.Select(i => i.HalfSteps).ToArray();
         
         // 根据不同音阶类型创建变奏
-        if (originalIntervals.SequenceEqual(new[] { 2, 2, 1, 2, 2, 2, 1 }))
+        if (originalIntervals.SequenceEqual(MajorScaleIntervals))
         {
             // 大调音阶变为混合利底亚调式（降低第七音）
             var mixolydianIntervals = new[]
@@ -1028,7 +1052,7 @@ public class ImprovedMelodyGenerator
             };
             return new Melanchall.DryWetMidi.MusicTheory.Scale(mixolydianIntervals, originalScale.RootNote);
         }
-        else if (originalIntervals.SequenceEqual(new[] { 2, 1, 2, 2, 1, 2, 2 }))
+        else if (originalIntervals.SequenceEqual(MinorScaleIntervals))
         {
             // 小调音阶变为多利亚调式（升高第六音）
             var dorianIntervals = new[]
@@ -1043,7 +1067,7 @@ public class ImprovedMelodyGenerator
             };
             return new Melanchall.DryWetMidi.MusicTheory.Scale(dorianIntervals, originalScale.RootNote);
         }
-        else if (originalIntervals.Length == 5 && originalIntervals.SequenceEqual(new[] { 2, 2, 3, 2, 3 }))
+        else if (originalIntervals.Length == 5 && originalIntervals.SequenceEqual(PentatonicScaleIntervals))
         {
             // 五声音阶变奏 - 添加一个变化音
             var variationIntervals = new[]
@@ -1057,7 +1081,7 @@ public class ImprovedMelodyGenerator
             };
             return new Melanchall.DryWetMidi.MusicTheory.Scale(variationIntervals, originalScale.RootNote);
         }
-        else if (originalIntervals.Length == 6 && originalIntervals.SequenceEqual(new[] { 3, 2, 1, 1, 3, 2 }))
+        else if (originalIntervals.Length == 6 && originalIntervals.SequenceEqual(BluesScaleIntervals))
         {
             // 蓝调音阶变奏 - 保持基本特征但稍作调整
             var variationIntervals = new[]
@@ -1104,7 +1128,7 @@ public class ImprovedMelodyGenerator
                 variationIntervals.Add(Melanchall.DryWetMidi.MusicTheory.Interval.GetUp((Melanchall.DryWetMidi.Common.SevenBitNumber)value));
             }
             
-            return new Melanchall.DryWetMidi.MusicTheory.Scale(variationIntervals.ToArray(), originalScale.RootNote);
+            return new Melanchall.DryWetMidi.MusicTheory.Scale([..variationIntervals], originalScale.RootNote);
         }
     }
 
@@ -1120,7 +1144,7 @@ public class ImprovedMelodyGenerator
     /// 每个节奏模式都是一个整数列表，代表在变奏中每个节拍是否有音符。
     /// 模式的长度通常与变奏的节拍数相同。
     /// </remarks>
-    private List<int> GetVariationRhythm(int variationNumber, MusicStyle style, Emotion emotion)
+    private static List<int> GetVariationRhythm(int variationNumber, MusicStyle style, Emotion emotion)
     {
         var basePattern = GetMelodicRhythmPattern(style, emotion);
 
@@ -1162,7 +1186,7 @@ public class ImprovedMelodyGenerator
     /// 它将非零值转换为零值，将零值转换为非零值。
     /// 这在变奏中用于创建反向或逆行的旋律。
     /// </remarks>
-    private List<int> InvertRhythmPattern(List<int> pattern)
+    private static List<int> InvertRhythmPattern(List<int> pattern)
     {
         var inverted = new List<int>();
         foreach (var beat in pattern)
@@ -1184,7 +1208,7 @@ public class ImprovedMelodyGenerator
     /// 每个轮廓都是一个整数列表，代表在变奏中每个节拍的音符索引。
     /// 轮廓的长度通常与变奏的节拍数相同。
     /// </remarks>
-    private List<int> GetVariationContour(int variationNumber)
+    private static List<int> GetVariationContour(int variationNumber)
     {
         return variationNumber switch
         {
@@ -1219,7 +1243,7 @@ public class ImprovedMelodyGenerator
     /// 如果获取失败（例如，音符超出范围），则使用备用方法手动构建音符列表。
     /// 最后，返回包含所有音符名称的列表（去重）。
     /// </remarks>
-    private List<NoteName> GetScaleNotes(Scale scale, int octave)
+    private static List<NoteName> GetScaleNotes(Scale scale, int octave)
     {
         var scaleNotes = new List<NoteName>();
 
@@ -1267,7 +1291,7 @@ public class ImprovedMelodyGenerator
     /// 它根据音阶类型（大调或小调）手动构建音符列表。
     /// 构建过程中，会考虑到八度信息，确保音符在正确的音高范围。
     /// </remarks>
-    private List<NoteName> GetScaleNotesFallback(Scale scale, int octave)
+    private static List<NoteName> GetScaleNotesFallback(Scale scale, int octave)
     {
         var scaleNotes = new List<NoteName>();
         var rootNote = scale.RootNote;
@@ -1310,7 +1334,7 @@ public class ImprovedMelodyGenerator
     /// 如果音阶的音程模式与大调音阶匹配，则返回true；否则返回false。
     /// 如果无法判断，默认返回true（大调）。
     /// </remarks>
-    private bool IsMajorScale(Scale scale)
+    private static bool IsMajorScale(Scale scale)
     {
         // 通过检查音程模式来判断是否为大调音阶
         try
@@ -1348,7 +1372,7 @@ public class ImprovedMelodyGenerator
     /// 如果计算失败（例如，音符超出范围），则使用备用方法手动计算。
     /// 最后，返回计算得到的音符名称。
     /// </remarks>
-    private NoteName GetNoteBySteps(NoteName root, int halfSteps, int octave)
+    private static NoteName GetNoteBySteps(NoteName root, int halfSteps, int octave)
     {
         try
         {
@@ -1396,7 +1420,7 @@ public class ImprovedMelodyGenerator
     /// 如果缓存不存在，则根据音阶类型（大调或小调）使用不同的方法构建音符列表。
     /// 构建完成后，将结果缓存起来，以便后续调用。
     /// </remarks>
-    private List<NoteName> GetScaleNoteNames(Scale scale)
+    private static List<NoteName> GetScaleNoteNames(Scale scale)
     {
         var root = scale.RootNote;
 
@@ -1461,7 +1485,6 @@ public class ImprovedMelodyGenerator
     {
         // 确定在乐句中的位置 - 优化计算
         int phrasePosition = beat % phraseLength;
-        bool isPhraseStart = phrasePosition == 0;
         bool isPhraseEnd = phrasePosition == phraseLength - 1;
 
         // 优化：只在关键位置更新和弦（减少计算频率）
@@ -1502,7 +1525,7 @@ public class ImprovedMelodyGenerator
     /// <summary>
     /// 当前旋律动机
     /// </summary>
-    private List<int> _melodyMotif = []; // 当前旋律动机
+    private readonly List<int> _melodyMotif = []; // 当前旋律动机
     /// <summary>
     /// 当前旋律动机中的位置
     /// </summary>
@@ -1524,7 +1547,7 @@ public class ImprovedMelodyGenerator
     /// <summary>
     /// 当前和声进行
     /// </summary>
-    private List<List<int>> _chordProgression = []; // 当前和声进行
+    private readonly List<List<int>> _chordProgression = []; // 当前和声进行
     /// <summary>
     /// 当前和弦的音阶度数
     /// </summary>
@@ -1536,7 +1559,7 @@ public class ImprovedMelodyGenerator
     /// <summary>
     /// 每乐句的和弦数量
     /// </summary>  
-    private int _chordsPerPhrase = 2; // 每乐句的和弦数量
+    private readonly int _chordsPerPhrase = 2; // 每乐句的和弦数量
 
     /// <summary>
     /// 选择音乐化的音符
@@ -1564,7 +1587,7 @@ public class ImprovedMelodyGenerator
             // 检查是否需要创建新动机
             if (!_hasEstablishedMotif || _motifRepetitionCount >= MAX_MOTIF_REPETITIONS)
             {
-                CreateMelodyMotif(parameters, scaleSize, phraseLength);
+                CreateMelodyMotif(parameters, scaleSize);
                 _motifRepetitionCount = 0;
             }
             else
@@ -1597,7 +1620,7 @@ public class ImprovedMelodyGenerator
             else
             {
                 // 回退到基本的音符选择逻辑
-                scaleDegree = GetBasicScaleDegree(parameters, scaleSize, phrasePosition);
+                scaleDegree = GetBasicScaleDegree(parameters, scaleSize);
             }
         }
 
@@ -1608,7 +1631,7 @@ public class ImprovedMelodyGenerator
         bool isChordAdaptationNeeded = phrasePosition % 4 == 0 || phrasePosition == phraseLength - 1;
         if (isChordAdaptationNeeded)
         {
-            scaleDegree = AdaptToCurrentChord(scaleDegree, scaleSize, phrasePosition, phraseLength);
+            scaleDegree = AdaptToCurrentChord(scaleDegree, scaleSize, phrasePosition);
         }
 
         // 添加音乐性的经过音和邻音
@@ -1656,7 +1679,7 @@ public class ImprovedMelodyGenerator
     /// 浪漫情绪：随机选择音阶度数。
     /// 未知情绪：默认使用标准情绪。
     /// </remarks>
-    private int GetBasicScaleDegree(MelodyParameters parameters, int scaleSize, int phrasePosition)
+    private static int GetBasicScaleDegree(MelodyParameters parameters, int scaleSize)
     {
         // 简单的基于情绪和位置的音符选择
         return parameters.Emotion switch
@@ -1707,7 +1730,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据旋律生成参数、音阶大小和乐句长度创建不同类型的旋律动机。
     /// 动机长度通常为2-4个音符，根据情绪和风格选择不同的动机类型。
     /// </remarks>
-    private void CreateMelodyMotif(MelodyParameters parameters, int scaleSize, int phraseLength)
+    private void CreateMelodyMotif(MelodyParameters parameters, int scaleSize)
     {
         _melodyMotif.Clear();
 
@@ -1733,7 +1756,7 @@ public class ImprovedMelodyGenerator
                 break;
             case Emotion.Sad:
                 // 下行动机，略带起伏
-                CreateDownwardMotif(scaleSize, motifLength);
+                CreateDownwardMotif(motifLength);
                 break;
                 /// <summary>
                 /// 活力：跳跃动机，较大音程
@@ -1809,7 +1832,7 @@ public class ImprovedMelodyGenerator
     /// 不同音乐风格和情绪下，可能会有不同的下行动偏好。
     /// 例如，古典音乐在悲伤或平静情绪下更倾向于使用下行动的旋律，而在快乐或浪漫情绪下更保守。
     /// </remarks>
-    private void CreateDownwardMotif(int scaleSize, int motifLength)
+    private void CreateDownwardMotif(int motifLength)
     {
         int currentDegree = 4; // 从五音开始
         _melodyMotif.Add(currentDegree);
@@ -2025,7 +2048,7 @@ public class ImprovedMelodyGenerator
     /// 不同音乐风格和情绪下，可能会有不同的变化偏好。
     /// 例如，古典音乐在快乐或浪漫情绪下更倾向于使用原始动机，而在悲伤或平静情绪下更保守。
     /// </remarks>
-    private double GetMotifVariationProbability(MusicStyle style, Emotion emotion)
+    private static double GetMotifVariationProbability(MusicStyle style, Emotion emotion)
     {
         // 不同音乐风格和情绪对动机变化的偏好不同
         return style switch
@@ -2070,7 +2093,7 @@ public class ImprovedMelodyGenerator
     /// 不同音乐风格下，可能会有不同的变化策略。
     /// 例如，古典音乐在快乐或浪漫情绪下更倾向于使用原始动机，而在悲伤或平静情绪下更保守。
     /// </remarks>
-    private int VaryMotifDegreeWithPosition(int baseDegree, int scaleSize, MelodyParameters parameters,
+    private static int VaryMotifDegreeWithPosition(int baseDegree, int scaleSize, MelodyParameters parameters,
                                          int phrasePosition, int phraseLength)
     {
         // 使用parameters中的style和emotion来调整变化方式
@@ -2120,7 +2143,7 @@ public class ImprovedMelodyGenerator
     /// 不同音乐风格下，可能会有不同的轮廓选择策略。
     /// 例如，爵士风格下更自由的轮廓选择，而古典风格下更结构化的轮廓选择。
     /// </remarks>
-    private int CalculateContourIndex(MelodyParameters parameters, int phrasePosition, int phraseLength, int contourLength)
+    private static int CalculateContourIndex(MelodyParameters parameters, int phrasePosition, int phraseLength, int contourLength)
     {
         // 根据音乐风格和情绪调整轮廓索引的计算方式
         return parameters.Style switch
@@ -2142,7 +2165,7 @@ public class ImprovedMelodyGenerator
     /// jazzVariations 包含了常见的 jazz 变化，例如大三度、小三度、大三度等。
     /// 变化后的音阶度数确保在音阶范围内，不会超出范围。
     /// </remarks>
-    private int JazzifyMotif(int baseDegree, int scaleSize)
+    private static int JazzifyMotif(int baseDegree, int scaleSize)
     {
         // 爵士乐风格的变化，可能包含更自由的音程
         int[] jazzVariations = [-2, -1, 1, 2, 3, -3]; // 包括大三度等变化
@@ -2161,7 +2184,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据当前情绪类型对基础音阶度数进行微调，可能会调整音高、力度或其他属性。
     /// 不同情绪类型可能会导致不同的变化效果，例如快乐可能会增加音高，悲伤可能会降低音高。
     /// </remarks>
-    private int PopRockifyMotif(int baseDegree, int scaleSize, Emotion emotion)
+    private static int PopRockifyMotif(int baseDegree, int scaleSize, Emotion emotion)
     {
         // 根据情绪调整流行/摇滚风格的动机变化
         if (emotion == Emotion.Energetic)
@@ -2193,7 +2216,7 @@ public class ImprovedMelodyGenerator
     /// 在弱拍时，使用更大的变化范围（例如+2、-2等）。
     /// 这种变化模式模拟了电子音乐中强拍和弱拍的不同变化方式。
     /// </remarks>
-    private int ElectronifyMotif(int baseDegree, int scaleSize, int phrasePosition)
+    private static int ElectronifyMotif(int baseDegree, int scaleSize, int phrasePosition)
     {
         // 电子风格下，根据位置使用不同的变化模式
         if (phrasePosition % 4 == 0) // 在小节强拍
@@ -2221,7 +2244,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据当前情绪类型对基础音阶度数进行微调，可能会调整音高、力度或其他属性。
     /// 不同情绪类型可能会导致不同的变化效果，例如快乐可能会增加音高，悲伤可能会降低音高。
     /// </remarks>
-    private int VaryMotifDegree(int baseDegree, int scaleSize, Emotion emotion)
+    private static int VaryMotifDegree(int baseDegree, int scaleSize, Emotion emotion)
     {
         // 根据情绪选择变化类型
         switch (emotion)
@@ -2279,7 +2302,7 @@ public class ImprovedMelodyGenerator
                 MusicStyle.Jazz => AddJazzOrnament(scaleDegree, scaleSize, phrasePosition, phraseLength),
                 MusicStyle.Rock or MusicStyle.Pop => AddPopRockOrnament(scaleDegree, scaleSize, phrasePosition, phraseLength),
                 MusicStyle.Electronic => AddElectronicOrnament(scaleDegree, scaleSize, phrasePosition, phraseLength),
-                _ => AddGenericOrnament(scaleDegree, scaleSize, phrasePosition, phraseLength),// 默认装饰音
+                _ => AddGenericOrnament(scaleDegree, scaleSize, phrasePosition),// 默认装饰音
             };
         }
 
@@ -2299,7 +2322,7 @@ public class ImprovedMelodyGenerator
     /// 考虑到风格、情绪和位置等因素，动态调整装饰音的添加概率。
     /// 默认情况下，60%的概率添加装饰音。
     /// </remarks>
-    private bool ShouldAddOrnament(MelodyParameters? parameters, int phrasePosition, int phraseLength)
+    private static bool ShouldAddOrnament(MelodyParameters? parameters, int phrasePosition, int phraseLength)
     {
         if (parameters == null)
             return _random.NextDouble() < 0.6; // 默认60%的概率添加装饰音
@@ -2367,7 +2390,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据当前情绪类型对装饰音进行微调，可能会调整装饰音的音高、力度或其他属性。
     /// 不同情绪类型可能会导致不同的装饰音效果，例如快乐可能会增加音高，悲伤可能会降低音高。
     /// </remarks>
-    private int AdjustOrnamentByEmotion(int decoratedDegree, int scaleSize, Emotion emotion)
+    private static int AdjustOrnamentByEmotion(int decoratedDegree, int scaleSize, Emotion emotion)
     {
         // 根据情绪类型对装饰音进行微调
         switch (emotion)
@@ -2476,7 +2499,6 @@ public class ImprovedMelodyGenerator
         appoggiaturaProb /= totalProb;
         passingToneProb /= totalProb;
         auxiliaryToneProb /= totalProb;
-        noOrnamentProb /= totalProb;
 
         double rand = _random.NextDouble();
 
@@ -2514,7 +2536,6 @@ public class ImprovedMelodyGenerator
         double glissandoProb = 0.20;
         double jazzPassingToneProb = 0.20;
         double jazzTrillProb = 0.15;
-        double noOrnamentProb = 0.20;
 
         // 根据乐句位置调整装饰音概率
         if (phrasePosition == 0) // 乐句开始位置
@@ -2524,7 +2545,6 @@ public class ImprovedMelodyGenerator
             glissandoProb = 0.15;
             jazzPassingToneProb = 0.10;
             jazzTrillProb = 0.10;
-            noOrnamentProb = 0.35;
         }
         else if (phrasePosition == phraseLength - 1) // 乐句结尾位置
         {
@@ -2533,7 +2553,6 @@ public class ImprovedMelodyGenerator
             glissandoProb = 0.30;
             jazzPassingToneProb = 0.15;
             jazzTrillProb = 0.15;
-            noOrnamentProb = 0.20;
         }
         else if (phrasePosition == phraseLength / 2) // 乐句中点位置
         {
@@ -2542,7 +2561,6 @@ public class ImprovedMelodyGenerator
             glissandoProb = 0.15;
             jazzPassingToneProb = 0.30;
             jazzTrillProb = 0.20;
-            noOrnamentProb = 0.15;
         }
         else if (phrasePosition % 4 == 0 && phraseLength > 4) // 强拍位置
         {
@@ -2551,7 +2569,6 @@ public class ImprovedMelodyGenerator
             glissandoProb = 0.15;
             jazzPassingToneProb = 0.15;
             jazzTrillProb = 0.15;
-            noOrnamentProb = 0.25;
         }
         else if (phrasePosition % 2 == 1) // 弱拍位置
         {
@@ -2560,22 +2577,20 @@ public class ImprovedMelodyGenerator
             glissandoProb = 0.15;
             jazzPassingToneProb = 0.25;
             jazzTrillProb = 0.25;
-            noOrnamentProb = 0.20;
         }
 
         // 归一化概率，确保总和为1
-        double totalProb = blueNoteProb + glissandoProb + jazzPassingToneProb + jazzTrillProb + noOrnamentProb;
+        double totalProb = blueNoteProb + glissandoProb + jazzPassingToneProb + jazzTrillProb;
         blueNoteProb /= totalProb;
         glissandoProb /= totalProb;
         jazzPassingToneProb /= totalProb;
         jazzTrillProb /= totalProb;
-        noOrnamentProb /= totalProb;
 
         double rand = _random.NextDouble();
 
         // 根据调整后的概率选择装饰音
         if (rand < blueNoteProb) // 蓝色音符
-            return AddBlueNote(scaleDegree, scaleSize);
+            return AddBlueNote(scaleDegree);
         else if (rand < blueNoteProb + glissandoProb) // 滑音准备
             return AddGlissandoPreparation(scaleDegree, scaleSize);
         else if (rand < blueNoteProb + glissandoProb + jazzPassingToneProb) // 装饰性经过音
@@ -2606,7 +2621,6 @@ public class ImprovedMelodyGenerator
         double percussiveProb = 0.15;
         double fastPassingToneProb = 0.15;
         double octaveRepeatProb = 0.10;
-        double noOrnamentProb = 0.25;
 
         // 根据乐句位置调整装饰音概率
         if (phrasePosition == 0) // 乐句开始位置
@@ -2617,7 +2631,6 @@ public class ImprovedMelodyGenerator
             percussiveProb = 0.10;
             fastPassingToneProb = 0.10;
             octaveRepeatProb = 0.15;
-            noOrnamentProb = 0.25;
         }
         else if (phrasePosition == phraseLength - 1) // 乐句结尾位置
         {
@@ -2627,7 +2640,6 @@ public class ImprovedMelodyGenerator
             percussiveProb = 0.10;
             fastPassingToneProb = 0.10;
             octaveRepeatProb = 0.20;
-            noOrnamentProb = 0.20;
         }
         else if (phrasePosition == phraseLength / 2) // 乐句中点位置
         {
@@ -2637,7 +2649,6 @@ public class ImprovedMelodyGenerator
             percussiveProb = 0.25;
             fastPassingToneProb = 0.15;
             octaveRepeatProb = 0.10;
-            noOrnamentProb = 0.20;
         }
         else if (phrasePosition % 4 == 0 && phraseLength > 4) // 强拍位置
         {
@@ -2647,7 +2658,6 @@ public class ImprovedMelodyGenerator
             percussiveProb = 0.15;
             fastPassingToneProb = 0.10;
             octaveRepeatProb = 0.10;
-            noOrnamentProb = 0.25;
         }
         else if (phrasePosition % 2 == 1) // 弱拍位置
         {
@@ -2657,31 +2667,29 @@ public class ImprovedMelodyGenerator
             percussiveProb = 0.15;
             fastPassingToneProb = 0.25;
             octaveRepeatProb = 0.10;
-            noOrnamentProb = 0.20;
         }
 
         // 归一化概率，确保总和为1
-        double totalProb = slideProb + powerChordProb + percussiveProb + fastPassingToneProb + octaveRepeatProb + noOrnamentProb;
+        double totalProb = slideProb + powerChordProb + percussiveProb + fastPassingToneProb + octaveRepeatProb;
         slideProb /= totalProb;
         powerChordProb /= totalProb;
         percussiveProb /= totalProb;
         fastPassingToneProb /= totalProb;
         octaveRepeatProb /= totalProb;
-        noOrnamentProb /= totalProb;
 
         double rand = _random.NextDouble();
 
         // 根据调整后的概率选择装饰音
         if (rand < slideProb) // 滑音
-            return AddSlide(scaleDegree, scaleSize);
+            return AddSlide(scaleDegree);
         else if (rand < slideProb + powerChordProb) // 力量和弦装饰
             return AddPowerChordOrnament(scaleDegree, scaleSize);
         else if (rand < slideProb + powerChordProb + percussiveProb) // 敲击音效果
-            return AddPercussiveOrnament(scaleDegree, scaleSize);
+            return AddPercussiveOrnament(scaleDegree);
         else if (rand < slideProb + powerChordProb + percussiveProb + fastPassingToneProb) // 快速经过音
             return AddFastPassingTone(scaleDegree, scaleSize);
         else if (rand < slideProb + powerChordProb + percussiveProb + fastPassingToneProb + octaveRepeatProb) // 高八度重复
-            return AddOctaveRepeat(scaleDegree, scaleSize);
+            return AddOctaveRepeat(scaleDegree);
         else // 保持原音符
             return scaleDegree;
     }
@@ -2705,7 +2713,6 @@ public class ImprovedMelodyGenerator
         double synthProb = 0.20;
         double jumpProb = 0.15;
         double repeatProb = 0.15;
-        double noOrnamentProb = 0.25;
 
         // 根据乐句位置调整装饰音概率
         if (phrasePosition == 0) // 乐句开始位置
@@ -2715,7 +2722,6 @@ public class ImprovedMelodyGenerator
             synthProb = 0.25;
             jumpProb = 0.10;
             repeatProb = 0.10;
-            noOrnamentProb = 0.25;
         }
         else if (phrasePosition == phraseLength - 1) // 乐句结尾位置
         {
@@ -2724,7 +2730,6 @@ public class ImprovedMelodyGenerator
             synthProb = 0.15;
             jumpProb = 0.25;
             repeatProb = 0.25;
-            noOrnamentProb = 0.20;
         }
         else if (phrasePosition == phraseLength / 2) // 乐句中点位置
         {
@@ -2733,7 +2738,6 @@ public class ImprovedMelodyGenerator
             synthProb = 0.25;
             jumpProb = 0.25;
             repeatProb = 0.15;
-            noOrnamentProb = 0.15;
         }
         else if (phrasePosition % 4 == 0 && phraseLength > 4) // 强拍位置
         {
@@ -2742,7 +2746,6 @@ public class ImprovedMelodyGenerator
             synthProb = 0.20;
             jumpProb = 0.15;
             repeatProb = 0.10;
-            noOrnamentProb = 0.25;
         }
         else if (phrasePosition % 2 == 1) // 弱拍位置
         {
@@ -2751,28 +2754,26 @@ public class ImprovedMelodyGenerator
             synthProb = 0.15;
             jumpProb = 0.20;
             repeatProb = 0.25;
-            noOrnamentProb = 0.25;
         }
 
         // 归一化概率，确保总和为1
-        double totalProb = arpeggiatorProb + synthProb + jumpProb + repeatProb + noOrnamentProb;
+        double totalProb = arpeggiatorProb + synthProb + jumpProb + repeatProb;
         arpeggiatorProb /= totalProb;
         synthProb /= totalProb;
         jumpProb /= totalProb;
         repeatProb /= totalProb;
-        noOrnamentProb /= totalProb;
 
         double rand = _random.NextDouble();
 
         // 根据调整后的概率选择装饰音
         if (rand < arpeggiatorProb) // 琶音器效果准备
-            return AddArpeggiatorEffect(scaleDegree, scaleSize);
+            return AddArpeggiatorEffect(scaleDegree);
         else if (rand < arpeggiatorProb + synthProb) // 合成器风格装饰
             return AddSynthOrnament(scaleDegree, scaleSize);
         else if (rand < arpeggiatorProb + synthProb + jumpProb) // 跳跃音（电子风格）
             return AddJumpOrnament(scaleDegree, scaleSize);
         else if (rand < arpeggiatorProb + synthProb + jumpProb + repeatProb) // 重复装饰
-            return AddRepeatOrnament(scaleDegree, scaleSize);
+            return AddRepeatOrnament(scaleDegree);
         else // 保持原音符
             return scaleDegree;
     }
@@ -2789,7 +2790,7 @@ public class ImprovedMelodyGenerator
     /// 此方法用于添加通用装饰音，包括经过音、邻音、辅助音和保持原音符。
     /// 装饰音的选择基于随机概率和当前短语位置，以确保旋律的多样性和变化。
     /// </remarks>
-    private int AddGenericOrnament(int scaleDegree, int scaleSize, int phrasePosition, int phraseLength)
+    private static int AddGenericOrnament(int scaleDegree, int scaleSize, int phrasePosition)
     {
         // 决定使用哪种装饰
         int ornamentType = _random.Next(4); // 0: 经过音, 1: 邻音, 2: 辅助音, 3: 保持
@@ -2896,7 +2897,7 @@ public class ImprovedMelodyGenerator
     /// 此方法用于添加蓝色音符，通常是降低的3rd、5th或7th音。
     /// 这在爵士音乐中常用于创建蓝色音符的模式或循环结构。
     /// </remarks>
-    private int AddBlueNote(int scaleDegree, int scaleSize)
+    private int AddBlueNote(int scaleDegree)
     {
         // 蓝色音符通常是降低的3rd、5th或7th音
         int[] blueNotePositions = [2, 4, 6]; // 通常是3rd, 5th, 7th音阶度数
@@ -2945,7 +2946,7 @@ public class ImprovedMelodyGenerator
     /// 此方法用于添加爵士风格的经过音，通常是从当前音符跳转到上方或下方的音符。
     /// 这在爵士音乐中常用于创建快速的旋律过渡。
     /// </remarks>
-    private int AddJazzPassingTone(int scaleDegree, int scaleSize)
+    private static int AddJazzPassingTone(int scaleDegree, int scaleSize)
     {
         // 爵士经过音可以包含和弦外音和半音
         int direction = _random.NextDouble() < 0.5 ? 1 : -1;
@@ -2997,7 +2998,7 @@ public class ImprovedMelodyGenerator
     /// 此方法用于添加滑音，通常是从较低音滑到目标音。
     /// 这在摇滚音乐中常用于创建滑音的旋律过渡。
     /// </remarks>
-    private int AddSlide(int scaleDegree, int scaleSize)
+    private int AddSlide(int scaleDegree)
     {
         // 摇滚滑音通常是从较低音滑到目标音
         int slideStartDegree = Math.Max(0, scaleDegree - (_random.Next(3) + 1)); // 向下1-3个音
@@ -3042,7 +3043,7 @@ public class ImprovedMelodyGenerator
     /// 此方法用于添加敲击音效果，通常通过力度变化实现。
     /// 这在摇滚音乐中常用于创建敲击的旋律过渡。
     /// </remarks>
-    private int AddPercussiveOrnament(int scaleDegree, int scaleSize)
+    private int AddPercussiveOrnament(int scaleDegree)
     {
         // 敲击音效果通常通过力度变化实现
         _ornamentType = OrnamentType.Percussive;
@@ -3059,7 +3060,7 @@ public class ImprovedMelodyGenerator
     /// 此方法用于添加快速经过音，通常是级进或级退。
     /// 这在摇滚音乐中常用于创建快速的旋律过渡。
     /// </remarks>
-    private int AddFastPassingTone(int scaleDegree, int scaleSize)
+    private static int AddFastPassingTone(int scaleDegree, int scaleSize)
     {
         // 快速经过音，通常是级进
         int direction = _random.NextDouble() < 0.5 ? 1 : -1;
@@ -3081,7 +3082,7 @@ public class ImprovedMelodyGenerator
     /// 此方法用于添加高八度重复，通常是在当前音符基础上跳跃一定的音程。
     /// 这在流行音乐中常用于创建高八度重复的模式或循环结构。
     /// </remarks>
-    private int AddOctaveRepeat(int scaleDegree, int scaleSize)
+    private int AddOctaveRepeat(int scaleDegree)
     {
         _ornamentType = OrnamentType.OctaveRepeat;
         return scaleDegree; // 效果将在音符生成时处理
@@ -3099,7 +3100,7 @@ public class ImprovedMelodyGenerator
     /// 此方法用于添加琶音器效果准备，通常是在当前音符基础上跳跃一定的音程。
     /// 这在电子音乐中常用于创建琶音器效果的模式或循环结构。
     /// </remarks>
-    private int AddArpeggiatorEffect(int scaleDegree, int scaleSize)
+    private int AddArpeggiatorEffect(int scaleDegree)
     {
         _ornamentType = OrnamentType.Arpeggiator;
         _arpeggiatorStartDegree = scaleDegree;
@@ -3144,7 +3145,7 @@ public class ImprovedMelodyGenerator
     /// 此方法用于添加跳跃装饰音，通常是在当前音符基础上跳跃一定的音程。
     /// 这在电子音乐中常用于创建跳跃的模式或循环结构。
     /// </remarks>
-    private int AddJumpOrnament(int scaleDegree, int scaleSize)
+    private static int AddJumpOrnament(int scaleDegree, int scaleSize)
     {
         // 大幅度跳跃的装饰音
         int jumpInterval = _random.Next(2) + 3; // 3-4度跳跃
@@ -3168,7 +3169,7 @@ public class ImprovedMelodyGenerator
     /// 此方法用于添加重复装饰音，通常是在当前音符基础上重复播放相同的音符。
     /// 这在电子音乐中常用于创建重复的模式或循环结构。
     /// </remarks>
-    private int AddRepeatOrnament(int scaleDegree, int scaleSize)
+    private int AddRepeatOrnament(int scaleDegree)
     {
         _ornamentType = OrnamentType.Repeat;
         return scaleDegree;
@@ -3274,7 +3275,7 @@ public class ImprovedMelodyGenerator
     /// 此方法用于添加当前音阶度数的邻音，确保在音阶范围内。
     /// 邻音可以是当前度数的上一个或下一个度数，具体取决于随机选择的方向。
     /// </remarks>
-    private int AddNeighborTone(int currentDegree, int scaleSize)
+    private static int AddNeighborTone(int currentDegree, int scaleSize)
     {
         int[] neighborDirections = [-1, 1]; // 上邻音或下邻音
         int direction = neighborDirections[_random.Next(neighborDirections.Length)];
@@ -3298,7 +3299,7 @@ public class ImprovedMelodyGenerator
     /// 辅助音可以是当前度数的上方或下方的装饰音，具体取决于随机选择的方向。
     /// 辅助音的音程通常是大二度或大三度，以增加音乐的丰富性。
     /// </remarks>
-    private int AddAuxiliaryTone(int currentDegree, int scaleSize)
+    private static int AddAuxiliaryTone(int currentDegree, int scaleSize)
     {
         // 通常是上方或下方的装饰音
         int[] auxiliaryDirections = [-1, 1];
@@ -3379,7 +3380,7 @@ public class ImprovedMelodyGenerator
     /// <param name="parameters">旋律参数</param>
     /// <param name="direction">方向（1=上升，-1=下降）</param>
     /// <returns>优化后的音阶度数</returns>
-    private int ApplySmoothTransitionOptimized(int lastDegree, int targetDegree, int scaleSize, MelodyParameters parameters, int direction)
+    private static int ApplySmoothTransitionOptimized(int lastDegree, int targetDegree, int scaleSize, MelodyParameters parameters, int direction)
     {
         // 快速路径：如果音程已经很小，直接返回
         int rawInterval = Math.Abs(targetDegree - lastDegree);
@@ -3411,7 +3412,7 @@ public class ImprovedMelodyGenerator
     /// 此方法根据音乐风格确定最大允许跳跃音程，用于确保生成的旋律在音乐理论上是连贯的。
     /// 不同的音乐风格可能有不同的跳跃限制，以符合其独特的音乐特征。
     /// </remarks>
-    private int GetMaxAllowedInterval(MusicStyle style)
+    private static int GetMaxAllowedInterval(MusicStyle style)
     {
         // 根据不同音乐风格设置不同的跳跃限制
         return style switch
@@ -3472,8 +3473,7 @@ public class ImprovedMelodyGenerator
     /// 策略1：使用和弦音作为过渡，40%概率。
     /// 策略2：使用级进或小跳跃，50%概率。
     /// </remarks>
-    private int ApplySmoothTransition(int fromScaleDegree, int toScaleDegree, int scaleSize,
-                                    MelodyParameters parameters, int direction)
+    private int ApplySmoothTransition(int fromScaleDegree, int scaleSize, int direction)
     {
         // 策略1：使用和弦音作为过渡
         if (_currentChord.Count > 0 && _random.NextDouble() < 0.4)
@@ -3559,7 +3559,7 @@ public class ImprovedMelodyGenerator
     /// 例如，C4在Major音阶中是主音（度数为0），而D4在Minor音阶中是三音（度数为2）。
     /// 如果音符不在音阶中，默认返回主音（度数为0）。
     /// </remarks>
-    private int GetScaleDegreeFromNote(NoteName note, Scale scale)
+    private static int GetScaleDegreeFromNote(NoteName note, Scale scale)
     {
         var scaleNoteNames = GetScaleNoteNames(scale);
         for (int i = 0; i < scaleNoteNames.Count; i++)
@@ -3580,7 +3580,7 @@ public class ImprovedMelodyGenerator
     /// 不同情绪类型会有不同的解决音，例如快乐情绪的解决音通常是主音，而悲伤情绪的解决音通常是三音。
     /// 确保返回的音阶度数在音阶范围内。
     /// </remarks>
-    private int GetResolutionTone(Emotion emotion)
+    private static int GetResolutionTone(Emotion emotion)
     {
         // 根据情绪选择合适的解决音
         // 通常是主音或属音，但可以有变化
@@ -3624,7 +3624,7 @@ public class ImprovedMelodyGenerator
     /// 不同情绪类型会有不同的稳定音，例如快乐情绪的稳定音通常是主音，而悲伤情绪的稳定音通常是三音。
     /// 确保返回的音阶度数在音阶范围内。
     /// </remarks>
-    private int GetStableTone(Emotion emotion)
+    private static int GetStableTone(Emotion emotion)
     {
         return emotion switch
         {
@@ -3673,7 +3673,7 @@ public class ImprovedMelodyGenerator
     /// 不同情绪类型会有不同的高潮音，例如快乐情绪的高潮音通常是七音，而悲伤情绪的高潮音通常是五音。
     /// 确保返回的音阶度数在音阶范围内。
     /// </remarks>
-    private int GetClimaxTone(Emotion emotion)
+    private static int GetClimaxTone(Emotion emotion)
     {
         return emotion switch
         {
@@ -3716,7 +3716,7 @@ public class ImprovedMelodyGenerator
     /// 经过音可以是升音或降音，增加旋律的流动性和变化性。
     /// 确保新的音阶度数在音阶范围内。
     /// </remarks>
-    private int AddPassingTone(int currentDegree, int scaleLength)
+    private static int AddPassingTone(int currentDegree, int scaleLength)
     {
         int[] passingDirections = [-1, 1]; // 可以向上或向下
         int direction = passingDirections[_random.Next(passingDirections.Length)];
@@ -3815,7 +3815,7 @@ public class ImprovedMelodyGenerator
     /// 奇数位置通常会有较短的时值，而偶数位置通常会有较长的时值。
     /// 最后一个音符（isPhraseEnd为true）通常会有较长的时值，以突出结束。
     /// </remarks>
-    private long GetMusicalDuration(MelodyParameters parameters, int phrasePosition, bool isPhraseEnd)
+    private static long GetMusicalDuration(MelodyParameters parameters, int phrasePosition, bool isPhraseEnd)
     {
         // 生成缓存键
         string cacheKey = $"{parameters.Style}_{phrasePosition % 4}_{isPhraseEnd}";
@@ -3898,7 +3898,7 @@ public class ImprovedMelodyGenerator
         double contextAdjustment = GetVelocityContextAdjustment();
 
         // 应用表情记号效果
-        double expressionEffect = GetExpressionEffect(phrasePosition, phraseLength, parameters);
+        double expressionEffect = GetExpressionEffect(phrasePosition, phraseLength);
 
         // 计算最终力度
         int finalVelocity = (int)(baseVelocity * velocityMultiplier * contextAdjustment * expressionEffect);
@@ -3919,7 +3919,7 @@ public class ImprovedMelodyGenerator
     /// 风格会影响音符的力度变化，例如古典风格会有更细致的变化。
     /// 速度设置会影响音符的整体力度，例如快速度会有更强的音符。
     /// </remarks>
-    private int CalculateBaseVelocity(MelodyParameters parameters)
+    private static int CalculateBaseVelocity(MelodyParameters parameters)
     {
         int baseVelocity = parameters.Emotion switch
         {
@@ -4003,7 +4003,7 @@ public class ImprovedMelodyGenerator
     /// 不同的情绪会导致音符的力度有显著的变化，符合音乐理论的预期情感。
     /// 例如，快乐音乐会有强烈的 crescendo（ crescendo），而悲伤音乐会有明显的降音。
     /// </remarks>
-    private double ApplyMusicalVelocityCurve(double positionRatio, Emotion emotion)
+    private static double ApplyMusicalVelocityCurve(double positionRatio, Emotion emotion)
     {
         // 根据情绪应用不同的力度曲线
         switch (emotion)
@@ -4087,7 +4087,6 @@ public class ImprovedMelodyGenerator
         // 根据音符方向调整（上行渐强，下行渐弱）
         if (_previousNotes.Count >= 2)
         {
-            var secondLastNote = _previousNotes[^2];
             bool isAscending = lastNote.Note < _lastSelectedNote;
             bool isDescending = lastNote.Note > _lastSelectedNote;
 
@@ -4115,15 +4114,15 @@ public class ImprovedMelodyGenerator
     /// <summary>
     /// 上次选择的音符
     /// </summary>
-    private NoteName _lastSelectedNote = NoteName.C; // 上次选择的音符
+    private readonly NoteName _lastSelectedNote = NoteName.C; // 上次选择的音符
     /// <summary>
     /// 当前音符时值
     /// </summary>
-    private int _currentDuration = 480; // 当前音符时值
+    private readonly int _currentDuration = 480; // 当前音符时值
     /// <summary>
     /// 当前音符演奏法
     /// </summary>
-    private Articulation _currentArticulation = Articulation.Normal; // 当前演奏法
+    private readonly Articulation _currentArticulation = Articulation.Normal; // 当前演奏法
 
     /// <summary>
     /// 音符演奏法枚举
@@ -4168,7 +4167,7 @@ public class ImprovedMelodyGenerator
     /// 支持的表情记号包括渐强、渐弱、突强、弱奏和强奏。
     /// 每个表情记号都有不同的应用范围和效果。
     /// </remarks>
-    private double GetExpressionEffect(int phrasePosition, int phraseLength, MelodyParameters parameters)
+    private static double GetExpressionEffect(int phrasePosition, int phraseLength)
     {
         double effect = 1.0;
 
@@ -4507,7 +4506,7 @@ public class ImprovedMelodyGenerator
     /// <summary>
     /// 调整音符以适应当前和弦
     /// </summary>
-    private int AdaptToCurrentChord(int scaleDegree, int scaleSize, int phrasePosition, int phraseLength)
+    private int AdaptToCurrentChord(int scaleDegree, int scaleSize, int phrasePosition)
     {
         // 如果当前没有和弦，返回原音阶度数
         if (_currentChord.Count == 0)
@@ -4571,7 +4570,7 @@ public class ImprovedMelodyGenerator
     /// </summary>
     /// <param name="emotion">情绪类型</param>
     /// <returns>旋律轮廓模式，包含音阶度数序列</returns>
-    private List<int> GetMelodicContour(Emotion emotion)
+    private static List<int> GetMelodicContour(Emotion emotion)
     {
         return emotion switch
         {
@@ -4590,7 +4589,7 @@ public class ImprovedMelodyGenerator
     /// </summary>
     /// <param name="style">音乐风格</param>
     /// <returns>乐句长度（拍数）</returns>
-    private int GetPhraseLength(MusicStyle style)
+    private static int GetPhraseLength(MusicStyle style)
     {
         return style switch
         {
@@ -4611,7 +4610,7 @@ public class ImprovedMelodyGenerator
     /// <param name="rhythmPattern">节奏模式</param>
     /// <param name="style">音乐风格</param>
     /// <returns>如果应该添加音符则返回true</returns>
-    private bool ShouldAddNoteAtBeat(int beat, List<int> rhythmPattern, MusicStyle style)
+    private static bool ShouldAddNoteAtBeat(int beat, List<int> rhythmPattern)
     {
         int patternPosition = beat % rhythmPattern.Count;
         return rhythmPattern[patternPosition] == 1;
@@ -4623,7 +4622,7 @@ public class ImprovedMelodyGenerator
     /// <param name="style">音乐风格</param>
     /// <param name="emotion">情绪类型</param>
     /// <returns>节奏模式，1表示添加音符，0表示不添加</returns>
-    private List<int> GetMelodicRhythmPattern(MusicStyle style, Emotion emotion)
+    private static List<int> GetMelodicRhythmPattern(MusicStyle style, Emotion emotion)
     {
         // 获取基础节奏模式
         var basePattern = GetBaseRhythmPattern(style, emotion);
@@ -4638,7 +4637,7 @@ public class ImprovedMelodyGenerator
     /// <param name="style">音乐风格</param>
     /// <param name="emotion">情绪类型</param>
     /// <returns>基础节奏模式</returns>
-    private List<int> GetBaseRhythmPattern(MusicStyle style, Emotion emotion)
+    private static List<int> GetBaseRhythmPattern(MusicStyle style, Emotion emotion)
     {
         return (style, emotion) switch
         {
@@ -4682,10 +4681,10 @@ public class ImprovedMelodyGenerator
     /// <param name="style">音乐风格</param>
     /// <param name="emotion">情绪类型</param>
     /// <returns>带变化的节奏模式</returns>
-    private List<int> AddRhythmVariations(List<int> basePattern, MusicStyle style, Emotion emotion)
+    private static List<int> AddRhythmVariations(List<int> basePattern, MusicStyle style, Emotion emotion)
     {
         var pattern = new List<int>(basePattern);
-        int variationChance = 0;
+        int variationChance;
 
         // 根据风格和情绪确定变化概率
         variationChance = style switch
@@ -4728,7 +4727,7 @@ public class ImprovedMelodyGenerator
     /// 添加切分节奏
     /// </summary>
     /// <param name="pattern">节奏模式</param>
-    private void AddSyncopation(List<int> pattern)
+    private static void AddSyncopation(List<int> pattern)
     {
         // 选择切分位置（通常在强拍之间）
         int[] syncopationPositions = GetSyncopationPositions(pattern.Count);
@@ -4756,7 +4755,7 @@ public class ImprovedMelodyGenerator
     /// </summary>
     /// <param name="patternLength">模式长度</param>
     /// <returns>可能的切分位置数组</returns>
-    private int[] GetSyncopationPositions(int patternLength)
+    private static int[] GetSyncopationPositions(int patternLength)
     {
         var positions = new List<int>();
 
@@ -4777,7 +4776,7 @@ public class ImprovedMelodyGenerator
     /// 添加节奏填充
     /// </summary>
     /// <param name="pattern">节奏模式</param>
-    private void AddRhythmicFill(List<int> pattern)
+    private static void AddRhythmicFill(List<int> pattern)
     {
         // 在模式的后半部分添加填充
         int startPos = pattern.Count / 2;
